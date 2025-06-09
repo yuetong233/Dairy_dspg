@@ -17,7 +17,9 @@ ui <- navbarPage("VA Data Dashboard", #test2
                           leafletOutput("map", height = "700px"),
                           absolutePanel(
                             top = 80, left = 20, width = 200, draggable = TRUE,
-                            style = "background-color: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
+                            style = "background-color: rgba(255,255,255,0.9); 
+                              padding: 10px; border-radius: 10px; box-shadow: 
+                              2px 2px 6px rgba(0,0,0,0.2);",
                             h4("Top 5 Counties by Score"),
                             tableOutput("top5_table")
                           )
@@ -42,12 +44,14 @@ server <- function(input, output, session) {
   counties <- counties(state = "VA", cb = TRUE, class = "sf")
   
   index_data <- data.frame(
-    NAME = c("Shenandoah", "Fairfax", "Albemarle", "Loudoun", "Richmond", "Augusta"),
+    NAME = c("Shenandoah", "Fairfax", "Albemarle", "Loudoun", "Richmond", 
+             "Augusta"),
     index = c(75, 50, 90, 88, 40, 81)
   )
   
   merged <- merge(counties, index_data, by = "NAME", all.x = TRUE)
-  pal <- colorNumeric(palette = "YlOrRd", domain = merged$index, na.color = "#f0f0f0")
+  pal <- colorNumeric(palette = "YlOrRd", domain = merged$index, na.color = 
+                        "#f0f0f0")
   
   # leaflet map
   output$map <- renderLeaflet({
@@ -81,7 +85,7 @@ server <- function(input, output, session) {
   })
   
   milk_data <- read_excel("milk_production.xlsx")
-  # sample line graph
+  # select counties
   output$county_selector <- renderUI({
     selectInput("selected_counties", "Counties:",
                 choices = unique(milk_data$COUNTY),
@@ -89,9 +93,9 @@ server <- function(input, output, session) {
                 multiple = TRUE)
   })
   
-  # Line plot filtered by selected counties
+  # line graph by county
   output$line_plot <- renderPlot({
-    req(input$selected_counties)  # Make sure something is selected
+    req(input$selected_counties)  # ensure selcet
     
     filtered_data <- milk_data %>%
       filter(COUNTY %in% input$selected_counties)
@@ -100,7 +104,8 @@ server <- function(input, output, session) {
       geom_line(size = 1.2) +
       geom_point(size = 2) +
       theme_minimal() +
-      labs(title = "Raw Milk Production by County by Month (2024)", y = "Milk Output", x = "Month") +
+      labs(title = "Raw Milk Production by County by Month (2024)", y = 
+             "Milk Output", x = "Month") +
       theme(plot.title = element_text(size = 16, face = "bold"))
   })
 }
