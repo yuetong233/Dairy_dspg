@@ -13,8 +13,8 @@ library(DT)
 
 # Load counties and transform CRS
 va_counties <- counties(state = "VA", cb = TRUE, class = "sf")
-va_counties <- st_transform(va_counties, 4326)
 va_counties$NAME <- toupper(va_counties$NAME)
+va_counties <- st_transform(va_counties, 4326)
 
 # Define target counties uppercase
 target_counties <- toupper(c("Shenandoah", "Warren", "Augusta", "Rockingham", 
@@ -23,25 +23,16 @@ target_counties <- toupper(c("Shenandoah", "Warren", "Augusta", "Rockingham",
 # Filter to target counties
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
 target_va_counties <- st_transform(target_va_counties, 4326)
-primary_secondary_roads <- st_transform(primary_secondary_roads, 4326)
-merged_suitability <- st_transform(merged_suitability, 4326)
-merged <- st_transform(merged, 4326)
 
-
-# Load roads shapefile
+# Load roads shapefile and transform
 roads_path <- "C:/Users/irmo2303/Downloads/DSPG_foler/tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
 roads <- sf::st_read(roads_path, quiet = TRUE)
-
-# Transform roads to match counties CRS (EPSG:4326)
 roads <- st_transform(roads, 4326)
 
 # Filter primary and secondary roads
 primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S"))
 
-# Make sure target counties are in same CRS (should already be, but double check)
-target_va_counties <- st_transform(target_va_counties, 4326)
-
-# Now perform spatial join safely
+# Spatial join roads with counties
 roads_with_county <- st_join(primary_secondary_roads, target_va_counties["NAME"], left = FALSE)
 
 # Calculate road segment lengths (meters)
@@ -62,14 +53,6 @@ accessibility_scores_df <- accessibility_scores %>% st_set_geometry(NULL)
 merged <- target_va_counties %>%
   left_join(accessibility_scores_df, by = "NAME")
 
-# Load milk production data
-milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/milk_production.xlsx") %>%
-  rename(`MILK (lbs)` = MILK)
-milk_data$COUNTY <- toupper(milk_data$COUNTY)
-milk_data$YEAR <- lubridate::year(milk_data$MONTH)
-milk_data$MONTH <- lubridate::month(milk_data$MONTH, label = TRUE, abbr = FALSE)
-milk_data$MONTH <- factor(milk_data$MONTH, levels = month.name, ordered = TRUE)
-
 # Dummy suitability scores for dairy plant mapping (example)
 index_data <- data.frame(
   NAME = target_counties,
@@ -79,6 +62,19 @@ index_data <- data.frame(
 merged_suitability <- target_va_counties %>%
   left_join(index_data, by = "NAME")
 
+# Transform merged suitability and accessibility after creation
+merged_suitability <- st_transform(merged_suitability, 4326)
+merged <- st_transform(merged, 4326)
+
+# Load milk production data
+milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/milk_production.xlsx") %>%
+  rename(`MILK (lbs)` = MILK)
+milk_data$COUNTY <- toupper(milk_data$COUNTY)
+milk_data$YEAR <- lubridate::year(milk_data$MONTH)
+milk_data$MONTH <- lubridate::month(milk_data$MONTH, label = TRUE, abbr = FALSE)
+milk_data$MONTH <- factor(milk_data$MONTH, levels = month.name, ordered = TRUE)
+
+# Define color palettes
 domain_vals <- merged_suitability$index
 if (all(is.na(domain_vals)) || length(domain_vals) == 0) {
   domain_vals <- c(0, 100)
@@ -259,6 +255,7 @@ server <- function(input, output, session) {
       footer = NULL
     ))
   })
+  
 }
 
 # Run the app
