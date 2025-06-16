@@ -1,3 +1,4 @@
+#libraries
 library(shiny)
 library(tigris)
 library(sf)
@@ -11,10 +12,12 @@ library(devtools)
 library(blsAPI)
 
 # get va counties shapefile
-va_counties <- counties(state = "VA", cb = TRUE, class = "sf")
-# Prepare the payload with BLS series IDs and API key
+va_counties <- counties(state = "VA", cb = TRUE, class = "sf") %>%
+  st_transform(4326)
 
-# ui
+
+
+# UI
 ui <- navbarPage("VA Data Dashboard", 
                  
                  # tab 1- map
@@ -47,12 +50,18 @@ ui <- navbarPage("VA Data Dashboard",
                  # tab 3- labor graph
                  tabPanel("Labor Availability",
                           leafletOutput("labor_map", height = "700px")
+                 ),
+                 
+                 #tab 4 - groundwater graph
+                 tabPanel("Groundwater Levels",
+                          leafletOutput("groundwater_map", height = "700px")
                  )
 )
 
 server <- function(input, output, session) {
-  counties <- counties(state = "VA", cb = TRUE, class = "sf")
   
+  # Part 1- labor API setup
+  counties <- counties(state = "VA", cb = TRUE, class = "sf")
   series_ids_county1 <- c('LAUCN510010000000003','LAUCN510030000000003','LAUCN510050000000003',
                           'LAUCN510070000000003','LAUCN510090000000003','LAUCN510110000000003',
                           'LAUCN510130000000003','LAUCN510150000000003','LAUCN510170000000003',
@@ -69,7 +78,6 @@ server <- function(input, output, session) {
                           'LAUCN510810000000003','LAUCN510830000000003','LAUCN510850000000003',
                           'LAUCN510870000000003','LAUCN510890000000003','LAUCN510910000000003',
                           'LAUCN510930000000003','LAUCN510950000000003','LAUCN510970000000003')
-  
   series_ids_county2 <- c('LAUCN510990000000003','LAUCN511010000000003','LAUCN511030000000003',
                           'LAUCN511050000000003','LAUCN511070000000003','LAUCN511090000000003',
                           'LAUCN511110000000003','LAUCN511130000000003','LAUCN511150000000003',
@@ -86,7 +94,6 @@ server <- function(input, output, session) {
                           'LAUCN511830000000003','LAUCN511850000000003','LAUCN511870000000003',
                           'LAUCN511910000000003','LAUCN511930000000003','LAUCN511950000000003',
                           'LAUCN511970000000003','LAUCN511990000000003')
-  
   series_cont <- c('LAUCN515100000000003','LAUCN515200000000003','LAUCN515300000000003',
                    'LAUCN515400000000003','LAUCN515500000000003','LAUCN515700000000003',
                    'LAUCN515900000000003','LAUCN516000000000003','LAUCN516100000000003',
@@ -98,8 +105,7 @@ server <- function(input, output, session) {
                    'LAUCN517350000000003','LAUCN517400000000003','LAUCN517500000000003',
                    'LAUCN517600000000003','LAUCN517700000000003','LAUCN517750000000003',
                    'LAUCN517900000000003','LAUCN518000000000003','LAUCN518100000000003',
-                   'LAUCN518200000000003','LAUCN518300000000003','LAUCN518400000000003'
-  )
+                   'LAUCN518200000000003','LAUCN518300000000003','LAUCN518400000000003')
   
   payload <- list('seriesid' = series_ids_county1, 'registrationKey' = "c107ff6e48f24ff8b78d2d32b4e87946")
   response <- blsAPI(payload, 2)
@@ -112,6 +118,7 @@ server <- function(input, output, session) {
   data3 <- fromJSON(response3)
   series_df <- rbind(data$Results$series, data2$Results$series, data3$Results$series)
   
+  # Part 2 - Index setup
   index_data <- data.frame(
     NAME = c("Shenandoah", "Fairfax", "Albemarle", "Loudoun", "Richmond", 
              "Augusta"),
@@ -122,7 +129,36 @@ server <- function(input, output, session) {
   pal <- colorNumeric(palette = "YlOrRd", domain = merged$index, na.color = 
                         "#f0f0f0")
   
-  # index map
+  # Part 3- groundwater API
+  levels <- readNWISdata(stateCd="Virginia",
+                         service = "gwlevels",
+                         startDate = "2025-03-01",
+                         endDate="")
+  latest_vals <- levels %>%
+    mutate(
+      lev_va = as.numeric(lev_va),
+      lev_dt = as.Date(lev_dt)
+    ) %>%
+    drop_na(lev_va) %>%
+    group_by(site_no) %>%
+    arrange(desc(lev_dt)) %>%
+    slice(1) %>%
+    ungroup()
+  
+  site_meta <- readNWISsite(unique(latest_vals$site_no)) %>%
+    filter(!is.na(dec_long_va), !is.na(dec_lat_va))
+  site_sf <- st_as_sf(site_meta, coords = c("dec_long_va", "dec_lat_va"), crs = 4326)
+  site_with_levels <- site_sf %>%
+    left_join(latest_vals, by = "site_no")
+  site_with_county <- st_join(site_with_levels, va_counties, join = st_within)
+  county_avg <- site_with_county %>%
+    st_drop_geometry() %>%
+    group_by(GEOID) %>%
+    summarise(avg_level = mean(lev_va, na.rm = TRUE), .groups = "drop")
+  va_map_data2 <- va_counties %>%
+    left_join(county_avg, by = "GEOID")
+  
+  # Output 1: index map
   output$map <- renderLeaflet({
     leaflet(merged) %>%
       addProviderTiles("CartoDB.Positron") %>%
@@ -144,7 +180,7 @@ server <- function(input, output, session) {
       addLegend(pal = pal, values = merged$index, title = "Score")
   })
   
-  # top 5 table
+  # Output 1: top 5 table
   output$top5_table <- renderTable({
     merged %>%
       st_drop_geometry() %>%
@@ -153,8 +189,8 @@ server <- function(input, output, session) {
       slice_head(n = 5)
   })
   
+  #Output 2: milk data setup
   milk_data <- read_excel("milk_production.xlsx")
-  # select counties
   output$county_selector <- renderUI({
     selectInput("selected_counties", "Counties:",
                 choices = unique(milk_data$COUNTY),
@@ -162,13 +198,11 @@ server <- function(input, output, session) {
                 multiple = TRUE)
   })
   
-  # line graph by county
+  # Output 2: milk data line graph
   output$line_plot <- renderPlot({
-    req(input$selected_counties)  # ensure selcet
-    
+    req(input$selected_counties)  
     filtered_data <- milk_data %>%
       filter(COUNTY %in% input$selected_counties)
-    
     ggplot(filtered_data, aes(x = MONTH, y = MILK, color = COUNTY)) +
       geom_line(size = 1.2) +
       geom_point(size = 2) +
@@ -177,12 +211,10 @@ server <- function(input, output, session) {
              "Milk Output", x = "Month") +
       theme(plot.title = element_text(size = 16, face = "bold"))
   })
-  #series_df <- data$Results$series
   
-  # unnest the `data` list-column
+  # Output 3: Labor data setup
   tidy_data <- series_df %>%
     tidyr::unnest(cols = c(data))
-  
   latest_vals <- tidy_data %>%
     mutate(value = as.numeric(value)) %>%
     group_by(seriesID) %>%
@@ -190,12 +222,11 @@ server <- function(input, output, session) {
     slice(1) %>%
     ungroup() %>%
     mutate(fips = substr(seriesID, 6, 10))
-  
   va_map_data <- va_counties %>%
     left_join(latest_vals, by = c("GEOID" = "fips"))
+  pal2 <- colorNumeric("YlOrRd", domain = va_map_data$value, na.color="transparent")
   
-  pal2 <- colorNumeric("YlOrRd", domain = va_map_data$value)
-  
+  #Output 3: labor data map
   output$labor_map <- renderLeaflet({
     leaflet(va_map_data) %>%
       addProviderTiles("CartoDB.Positron") %>%
@@ -208,15 +239,32 @@ server <- function(input, output, session) {
         fillOpacity = 0.7,
         highlight = highlightOptions(
           weight = 2,
-          color = "#666",
+          color = "#777",
           dashArray = "",
           fillOpacity = 0.7,
           bringToFront = TRUE),
         label = ~paste(NAME, ": ", value, "%")
       ) %>%
       addLegend(pal = pal2, values = ~value, opacity = 0.7,
-                title = "Unemployment Rate",
+                title = "Unemployment <br> Rate",
                 position = "topleft")
+  })
+  
+  # Output 4: groundwater map
+  output$groundwater_map <- renderLeaflet({
+    pal3 <- colorNumeric("Blues", domain = va_map_data2$avg_level, na.color="transparent")
+    
+    leaflet(va_map_data2) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addPolygons(
+        fillColor = ~ifelse(is.na(avg_level), "white", pal3(avg_level)),
+        fillOpacity = 0.8,
+        color = "#999999",
+        weight = 1,
+        label = ~paste0(NAME, ": ", ifelse(is.na(avg_level), "None", paste0(round(avg_level, 2), " ft"))) 
+      ) %>%
+      addLegend(pal = pal3, values = ~avg_level,
+                title = "Average <br> Groundwater <br> Level (ft)")
   })
 }
 
