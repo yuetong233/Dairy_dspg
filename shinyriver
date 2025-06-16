@@ -22,15 +22,11 @@ target_counties <- toupper(c("Shenandoah", "Warren", "Augusta", "Rockingham",
 
 # Filter to target counties
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
-target_va_counties <- st_transform(target_va_counties, 4326)
-primary_secondary_roads <- st_transform(primary_secondary_roads, 4326)
-merged_suitability <- st_transform(merged_suitability, 4326)
-merged <- st_transform(merged, 4326)
-
 
 # Load roads shapefile
 roads_path <- "C:/Users/irmo2303/Downloads/DSPG_foler/tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
 roads <- sf::st_read(roads_path, quiet = TRUE)
+roads <- st_transform(roads, 4326)
 
 # Filter primary and secondary roads
 primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S"))
@@ -44,7 +40,7 @@ roads_with_county$length_m <- as.numeric(st_length(roads_with_county))
 # Summarize total road length per county (km)
 accessibility_scores <- roads_with_county %>%
   group_by(NAME) %>%
-  summarise(total_road_length_km = sum(length_m, na.rm = TRUE) / 1000)
+  summarise(total_road_length_km = sum(length_m, na.rm = TRUE) / 1000, .groups = "drop")
 
 # Rescale length to 0-100 accessibility score
 accessibility_scores$score <- scales::rescale(accessibility_scores$total_road_length_km, to = c(0, 100))
@@ -257,4 +253,3 @@ server <- function(input, output, session) {
 
 # Run the app
 shinyApp(ui, server)
-
