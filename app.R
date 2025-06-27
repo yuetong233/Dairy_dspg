@@ -1,296 +1,511 @@
+
 library(shiny)
 library(tigris)
 library(sf)
 library(leaflet)
 library(dplyr)
+library(tigris)
 library(ggplot2)
 library(readxl)
 library(lubridate)
 library(scales)
 library(DT)
-library(httr)
-library(jsonlite)
-library(devtools)
-library(blsAPI)
+library(rnassqs)
+library(bslib)
+library(ggimage)
+library(tidyr)
+library(purrr)
+options(tigris_use_cache = TRUE)
 
-# --- Load spatial data and prep ---
+# Authenticate with NASS API
+nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
 
-# Load counties and transform CRS
-va_counties_gw <- counties(state = "VA", cb = TRUE, class = "sf") %>%
+# Load VA counties spatial data
+va_counties <- counties(state = "VA", cb = TRUE, class = "sf") %>%
   st_transform(4326)
-va_counties <- counties(state = "VA", cb = TRUE, class = "sf")
 va_counties$NAME <- toupper(va_counties$NAME)
-va_counties <- st_transform(va_counties, 4326)
 
-# Define target counties uppercase
-target_counties <- toupper(c("Shenandoah", "Warren", "Augusta", "Rockingham", 
-                             "Page", "Frederick", "Clarke", "Rockbridge"))
+# Define target counties (uppercase)
+target_counties <- toupper(c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM", 
+                             "PAGE", "FREDERICK", "CLARKE", "ROCKBRIDGE",
+                             "PITTSYLVANIA", "FRANKLIN"))
 
-# Filter to target counties
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
-target_va_counties <- st_transform(target_va_counties, 4326)
 
-# Load roads shapefile and transform
+weather_va_counties <- target_va_counties
+weather_va_counties$centroid <- st_centroid(weather_va_counties$geometry)
+coords <- st_coordinates(weather_va_counties$centroid)
+weather_va_counties$lat <- coords[,2]
+weather_va_counties$lon <- coords[,1]
+
+# Download weather data from Open-Meteo
+full_data <- list()
+for (i in 1:nrow(va_counties)) {
+  lat <- weather_va_counties$lat[i]
+  lon <- weather_va_counties$lon[i]
+  name <- weather_va_counties$NAME[i]
+  
+  res <- GET("https://archive-api.open-meteo.com/v1/archive",
+             query = list(
+               latitude = lat,
+               longitude = lon,
+               start_date = "2024-01-01",
+               end_date = as.character(Sys.Date() - 1),
+               daily = "temperature_2m_mean,relative_humidity_2m_mean",
+               timezone = "America/New_York"
+             ))
+  
+  if (status_code(res) == 200) {
+    data <- fromJSON(content(res, as = "text"))
+    if (!is.null(data$daily)) {
+      daily <- data$daily
+      daily$county <- name
+      full_data[[name]] <- as.data.frame(daily)
+    }
+  } else {
+    warning(paste("Failed to get data for", name))
+  }
+}
+#Operations on weather_data
+weather_data <- bind_rows(full_data)
+weather_data$temp_f <- weather_data$temperature_2m_mean * 9/5 + 32
+weather_data$time <- as.Date(weather_data$time)
+
+temp_f <- weather_data$temp_f
+relative <- weather_data$relative_humidity_2m_mean
+weather_data$humidity_index <- (temp_f) - (0.55 - 0.0055 * relative) * 
+  (temp_f - 58)
+
+# Load milk production data from your file
+milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/milk_production.xlsx") %>%
+  rename(`MILK (lbs)` = MILK) %>%
+  mutate(
+    COUNTY = toupper(COUNTY),
+    DATE = as.Date(MONTH),
+    YEAR = year(DATE),
+    MONTH_NAME = month(DATE, label = TRUE, abbr = FALSE),
+    MONTH_NUM = month(DATE)
+  )
+
+# Load roads shapefile and process for accessibility scores
 roads_path <- "C:/Users/irmo2303/Downloads/DSPG_foler/tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
 roads <- sf::st_read(roads_path, quiet = TRUE)
-roads <- st_transform(roads, 4326)
-
-# Filter primary and secondary roads
-primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S"))
-
-# Spatial join roads with counties
+primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S")) %>% st_transform(4326)
+# Join road segments with counties
 roads_with_county <- st_join(primary_secondary_roads, target_va_counties["NAME"], left = FALSE)
-
-# Calculate road segment lengths (meters)
 roads_with_county$length_m <- as.numeric(st_length(roads_with_county))
 
-# Summarize total road length per county (km)
-accessibility_scores <- roads_with_county %>%
+# Calculate total road length per county
+road_lengths <- roads_with_county %>%
   group_by(NAME) %>%
   summarise(total_road_length_km = sum(length_m, na.rm = TRUE) / 1000)
 
-# Rescale length to 0-100 accessibility score
-accessibility_scores$score <- scales::rescale(accessibility_scores$total_road_length_km, to = c(0, 100))
+# Calculate area (km²) of each county
+target_va_counties$area_km2 <- as.numeric(st_area(target_va_counties) / 1e6)
 
-# Drop geometry for join
+# Combine road lengths with area
+accessibility_scores <- road_lengths %>%
+  left_join(st_drop_geometry(target_va_counties)[, c("NAME", "area_km2")], by = "NAME") %>%
+  mutate(
+    road_density = total_road_length_km / area_km2,
+    score = rescale(road_density, to = c(0, 100))
+  )
+
 accessibility_scores_df <- accessibility_scores %>% st_set_geometry(NULL)
+accessibility_scores_df <- accessibility_scores_df %>%
+  group_by(NAME) %>%
+  summarise(across(everything(), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
 
-# Merge scores with target counties for mapping
-merged <- target_va_counties %>%
+
+merged_accessibility <- target_va_counties %>%
   left_join(accessibility_scores_df, by = "NAME")
 
-# Dummy suitability scores for dairy plant mapping (example)
-index_data <- data.frame(
-  NAME = target_counties,
-  index = c(75, 60, 85, 90, 50, 65, 70, 80)
-)
 
-merged_suitability <- target_va_counties %>%
-  left_join(index_data, by = "NAME")
+# Update color palette for map
+pal_access <- colorNumeric(palette = "Blues", domain = merged_accessibility$score, na.color = "#f0f0f0")
 
-# Transform merged suitability and accessibility after creation
-merged_suitability <- st_transform(merged_suitability, 4326)
-merged <- st_transform(merged, 4326)
-
-# Load milk production data
-milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/milk_production.xlsx") %>%
-  rename(`MILK (lbs)` = MILK)
-milk_data$COUNTY <- toupper(milk_data$COUNTY)
-milk_data$YEAR <- lubridate::year(milk_data$MONTH)
-milk_data$MONTH <- lubridate::month(milk_data$MONTH, label = TRUE, abbr = FALSE)
-milk_data$MONTH <- factor(milk_data$MONTH, levels = month.name, ordered = TRUE)
-
-# Define color palettes
-domain_vals <- merged_suitability$index
-if (all(is.na(domain_vals)) || length(domain_vals) == 0) {
-  domain_vals <- c(0, 100)
+# Function to fetch dairy cows data for last 10 years from API
+fetch_dairy_cows <- function(years) {
+  all_data <- lapply(years, function(y) {
+    tryCatch({
+      nassqs(list(
+        sector_desc = "ANIMALS & PRODUCTS",
+        group_desc = "LIVESTOCK",
+        commodity_desc = "CATTLE",
+        class_desc = "COWS, MILK",
+        agg_level_desc = "COUNTY",
+        state_alpha = "VA",
+        year = as.character(y)
+      ))
+    }, error = function(e) {
+      message(paste("API call failed for year", y, ":", e$message))
+      NULL
+    })
+  })
+  data <- do.call(rbind, Filter(Negate(is.null), all_data))
+  data
 }
-pal_suit <- colorNumeric(palette = "YlOrRd", domain = domain_vals, na.color = "#f0f0f0")
-pal_access <- colorNumeric(palette = "Blues", domain = merged$score, na.color = "#f0f0f0")
 
-# --- UI ---
-ui <- navbarPage("VA Data Dashboard",
-                 #tab1 - map
-                 tabPanel("Map View",
-                          leafletOutput("map", height = "700px"),
-                          absolutePanel(
-                            top = 80, left = 20, width = 300, draggable = TRUE,
-                            style = "background-color: rgba(255,255,255,0.9);
-               padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
-                            tags$div(
-                              style = "display: flex; align-items: center;",
-                              tags$h4("Top 5 Counties by Dairy Plant Suitability Score", style = "margin: 0;"),
-                              actionLink("show_info", label = NULL, icon = icon("info-circle"), style = "color: #31708f; margin-left: 8px;")
-                            ),
-                            tableOutput("top5_table")
-                          )
-                 ),
-                 
-                 #tab 2- line graph
-                 tabPanel("Line Graph View",
-                          sidebarLayout(
-                            sidebarPanel(
-                              h4("Select Counties: "),
-                              uiOutput("county_selector"),
-                              helpText("Shows milk production trends by county")
-                            ),
-                            mainPanel(
-                              plotOutput("line_plot", height = "600px")
-                            )
-                          )
-                 ),
-                 #tab 3- milk prod table
-                 tabPanel("Milk Production Table",
-                          sidebarLayout(
-                            sidebarPanel(
-                              selectInput("milk_county", "County:", choices = sort(target_counties))
-                            ),
-                            mainPanel(
-                              htmlOutput("milk_avg"),
-                              DT::dataTableOutput("milk_table")
-                            )
-                          )
-                 ),
-                 #tab 4 - road view
-                 tabPanel("Roads & Accessibility",
-                          sidebarLayout(
-                            sidebarPanel(
-                              helpText("Primary & Secondary Roads and Accessibility Scores by County")
-                            ),
-                            mainPanel(
-                              leafletOutput("roads_map", height = "500px"),
-                              plotOutput("accessibility_bar", height = "300px")
-                            )
-                          )
-                 ),
-                 # tab 5- labor graph
-                 tabPanel("Labor Availability",
-                          leafletOutput("labor_map", height = "700px")
-                 ),
-                 
-                 #tab 6- groundwater graph
-                 tabPanel("Groundwater Levels",
-                          leafletOutput("groundwater_map", height = "700px")
-                 )
+# UI
+my_theme <- bs_theme(
+  bg = "#fff8f0",
+  fg = "#5a3e1b",
+  primary = "#8bc34a",
+  base_font = font_google("Patrick Hand")
 )
 
-# --- Server ---
+ui <- fluidPage(
+  theme = my_theme,
+  navbarPage(title = "VA Data Dashboard",
+             
+             tags$head(
+               tags$link(rel = "stylesheet", type = "text/css", href = "styles.css"),
+               tags$style(HTML("      
+        body {
+          background-color: #fff8f0;
+          font-family: 'Patrick Hand', cursive;
+        }
+        .navbar, .panel {
+          border-radius: 15px;
+          box-shadow: 2px 2px 10px rgba(90, 62, 27, 0.4);
+        }
+        .action-button, .btn {
+          background-color: #8bc34a !important;
+          border-color: #5a3e1b !important;
+          color: #fff !important;
+          font-weight: bold;
+        }
+        .leaflet-container {
+          border-radius: 12px;
+          box-shadow: 0 0 15px rgba(90, 62, 27, 0.3);
+        }
+      "))
+             ),
+             
+             tabPanel("Map View 🗺️",
+                      leafletOutput("map", height = "700px"),
+                      absolutePanel(
+                        top = 80, left = 20, width = 300, draggable = TRUE,
+                        style = "background-color: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
+                        tags$div(
+                          style = "display: flex; align-items: center;",
+                          tags$h4("Top 5 Counties by Dairy Plant Suitability Score 🐮", style = "margin: 0;"),
+                          actionLink("show_info", label = NULL, icon = icon("info-circle"), style = "color: #5a3e1b; margin-left: 8px;")
+                        ),
+                        tableOutput("top5_table")
+                      )
+             ),
+             
+             tabPanel("Compare Counties 📊",
+                      sidebarLayout(
+                        sidebarPanel(
+                          h4("Select Counties to Compare"),
+                          selectInput("compare_counties", "Counties:", choices = target_counties, selected = head(target_counties, 2), multiple = TRUE),
+                          helpText("You can select up to 3 counties.")
+                        ),
+                        mainPanel(
+                          h4("Side-by-Side Comparison Table"),
+                          tableOutput("county_comparison_table")
+                        )
+                      )
+             ),
+             
+             tabPanel("Milk Production 🥛",
+                      sidebarLayout(
+                        sidebarPanel(
+                          h4("Select Counties 🐄"),
+                          uiOutput("county_selector"),
+                          helpText("Shows milk production trends by county")
+                        ),
+                        mainPanel(
+                          plotOutput("line_plot", height = "600px")
+                        )
+                      )
+             ),
+             
+             tabPanel("Milk Production Table 🧾",
+                      sidebarLayout(
+                        sidebarPanel(
+                          selectInput("milk_county", "County:", choices = sort(target_counties))
+                        ),
+                        mainPanel(
+                          htmlOutput("milk_avg"),
+                          DT::dataTableOutput("milk_table")
+                        )
+                      )
+             ),
+             
+             tabPanel("Roads & Accessibility 🚜",
+                      sidebarLayout(
+                        sidebarPanel(
+                          helpText("Primary & Secondary Roads and Accessibility Scores by County")
+                        ),
+                        mainPanel(
+                          leafletOutput("roads_map", height = "500px"),
+                          plotOutput("accessibility_bar", height = "300px")
+                        )
+                      )
+             ),
+             
+             tabPanel("Dairy Cow Inventory 🐂",
+                      sidebarLayout(
+                        sidebarPanel(
+                          selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1])
+                        ),
+                        mainPanel(
+                          DT::dataTableOutput("cow_inventory_table"),
+                          plotOutput("cow_inventory_plot", height = "400px")
+                        )
+                      )
+             ),
+             
+             tabPanel("Milk Efficiency 🐄📈",
+                      sidebarLayout(
+                        sidebarPanel(
+                          h4("Select Counties and Year"),
+                          uiOutput("efficiency_county_selector"),
+                          sliderInput("year_efficiency", "Select Year:", min = 2015, max = 2024, value = 2024, step = 1, sep = ""),
+                          helpText("Shows milk production efficiency: milk produced per dairy cow")
+                        ),
+                        mainPanel(
+                          h3("Milk Efficiency (lbs/cow per year)"),
+                          plotOutput("efficiency_plot", height = "400px"),
+                          hr(),
+                          h4("Correlation Summary: Cows vs. Milk Output"),
+                          DT::dataTableOutput("efficiency_summary_table"),
+                          hr(),
+                          h4("Data Quality Check"),
+                          DT::dataTableOutput("data_quality_table"),
+                          hr(),
+                          h4("Top Counties by Avg Monthly Milk Efficiency (2024)"),
+                          tableOutput("monthly_efficiency_table")
+                        )
+                      )
+             ),
+             
+             tabPanel("Weather Data",
+                      sidebarLayout(
+                        sidebarPanel(
+                          sliderInput("selected_date",
+                                      "Select Date:",
+                                      min = min(weather_data$time),
+                                      max = max(weather_data$time),
+                                      value = min(weather_data$time),
+                                      timeFormat = "%Y-%m-%d",
+                                      step = 1,
+                                      animate = animationOptions(interval = 50, loop = TRUE)),
+                          radioButtons( 
+                            inputId = "radio", 
+                            label = "What weather feature do you want to see?", 
+                            choices = list( 
+                              "Temperature (F)" = 1, 
+                              "Temperature-Humidity Index (THI)" = 2))
+                        ),
+                        mainPanel(
+                          leafletOutput("temp_map", height = "600px")
+                        )
+                      )
+             )
+  )
+)
+
+
+
+# Server logic for VA Dairy Dashboard
+
 server <- function(input, output, session) {
-  #Part 1- labor API setup
-  labor_counties <- counties(state = "VA", cb = TRUE, class = "sf")
-  series_ids_county1 <- c('LAUCN510010000000003','LAUCN510030000000003','LAUCN510050000000003',
-                          'LAUCN510070000000003','LAUCN510090000000003','LAUCN510110000000003',
-                          'LAUCN510130000000003','LAUCN510150000000003','LAUCN510170000000003',
-                          'LAUCN510190000000003','LAUCN510210000000003','LAUCN510230000000003',
-                          'LAUCN510250000000003','LAUCN510270000000003','LAUCN510290000000003',
-                          'LAUCN510310000000003','LAUCN510330000000003','LAUCN510350000000003',
-                          'LAUCN510360000000003','LAUCN510370000000003','LAUCN510410000000003',
-                          'LAUCN510430000000003','LAUCN510450000000003','LAUCN510470000000003',
-                          'LAUCN510490000000003','LAUCN510510000000003','LAUCN510530000000003',
-                          'LAUCN510570000000003','LAUCN510590000000003','LAUCN510610000000003',
-                          'LAUCN510630000000003','LAUCN510650000000003','LAUCN510670000000003',
-                          'LAUCN510690000000003','LAUCN510710000000003','LAUCN510730000000003',
-                          'LAUCN510750000000003','LAUCN510770000000003','LAUCN510790000000003',
-                          'LAUCN510810000000003','LAUCN510830000000003','LAUCN510850000000003',
-                          'LAUCN510870000000003','LAUCN510890000000003','LAUCN510910000000003',
-                          'LAUCN510930000000003','LAUCN510950000000003','LAUCN510970000000003')
-  series_ids_county2 <- c('LAUCN510990000000003','LAUCN511010000000003','LAUCN511030000000003',
-                          'LAUCN511050000000003','LAUCN511070000000003','LAUCN511090000000003',
-                          'LAUCN511110000000003','LAUCN511130000000003','LAUCN511150000000003',
-                          'LAUCN511170000000003','LAUCN511190000000003','LAUCN511210000000003',
-                          'LAUCN511250000000003','LAUCN511270000000003','LAUCN511310000000003',
-                          'LAUCN511330000000003','LAUCN511350000000003','LAUCN511370000000003',
-                          'LAUCN511390000000003','LAUCN511410000000003','LAUCN511430000000003',
-                          'LAUCN511450000000003','LAUCN511470000000003','LAUCN511490000000003',
-                          'LAUCN511530000000003','LAUCN511550000000003','LAUCN511570000000003',
-                          'LAUCN511590000000003','LAUCN511610000000003','LAUCN511630000000003',
-                          'LAUCN511650000000003','LAUCN511670000000003','LAUCN511690000000003',
-                          'LAUCN511710000000003','LAUCN511730000000003','LAUCN511750000000003',
-                          'LAUCN511770000000003','LAUCN511790000000003','LAUCN511810000000003',
-                          'LAUCN511830000000003','LAUCN511850000000003','LAUCN511870000000003',
-                          'LAUCN511910000000003','LAUCN511930000000003','LAUCN511950000000003',
-                          'LAUCN511970000000003','LAUCN511990000000003')
-  series_cont <- c('LAUCN515100000000003','LAUCN515200000000003','LAUCN515300000000003',
-                   'LAUCN515400000000003','LAUCN515500000000003','LAUCN515700000000003',
-                   'LAUCN515900000000003','LAUCN516000000000003','LAUCN516100000000003',
-                   'LAUCN516200000000003','LAUCN516300000000003','LAUCN516400000000003',
-                   'LAUCN516500000000003','LAUCN516600000000003','LAUCN516700000000003',
-                   'LAUCN516780000000003','LAUCN516800000000003','LAUCN516830000000003',
-                   'LAUCN516850000000003','LAUCN516900000000003','LAUCN517000000000003',
-                   'LAUCN517100000000003','LAUCN517200000000003','LAUCN517300000000003',
-                   'LAUCN517350000000003','LAUCN517400000000003','LAUCN517500000000003',
-                   'LAUCN517600000000003','LAUCN517700000000003','LAUCN517750000000003',
-                   'LAUCN517900000000003','LAUCN518000000000003','LAUCN518100000000003',
-                   'LAUCN518200000000003','LAUCN518300000000003','LAUCN518400000000003')
-  payload <- list('seriesid' = series_ids_county1, 'registrationKey' = "c107ff6e48f24ff8b78d2d32b4e87946")
-  response <- blsAPI(payload, 2)
-  data <- fromJSON(response)
-  payload2 <- list('seriesid' = series_ids_county2, 'registrationKey' = "c107ff6e48f24ff8b78d2d32b4e87946")
-  response2 <- blsAPI(payload2, 2)
-  data2 <- fromJSON(response2)
-  payload3 <- list('seriesid' = series_cont, 'registrationKey' = "c107ff6e48f24ff8b78d2d32b4e87946")
-  response3 <- blsAPI(payload3, 2)
-  data3 <- fromJSON(response3)
-  series_df <- rbind(data$Results$series, data2$Results$series, data3$Results$series)
   
-  # Part 2- groundwater API
-  levels <- readNWISdata(stateCd="Virginia",
-                         service = "gwlevels",
-                         startDate = "2025-03-01",
-                         endDate="")
-  latest_vals <- levels %>%
-    mutate(
-      lev_va = as.numeric(lev_va),
-      lev_dt = as.Date(lev_dt)
-    ) %>%
-    drop_na(lev_va) %>%
-    group_by(site_no) %>%
-    arrange(desc(lev_dt)) %>%
-    slice(1) %>%
-    ungroup()
-  
-  site_meta <- readNWISsite(unique(latest_vals$site_no)) %>%
-    filter(!is.na(dec_long_va), !is.na(dec_lat_va))
-  site_sf <- st_as_sf(site_meta, coords = c("dec_long_va", "dec_lat_va"), crs = 4326)
-  site_with_levels <- site_sf %>%
-    left_join(latest_vals, by = "site_no")
-  site_with_county <- st_join(site_with_levels, va_counties_gw, join = st_within)
-  county_avg <- site_with_county %>%
-    st_drop_geometry() %>%
-    group_by(GEOID) %>%
-    summarise(avg_level = mean(lev_va, na.rm = TRUE), .groups = "drop")
-  va_map_data2 <- va_counties_gw %>%
-    left_join(county_avg, by = "GEOID")
-  
-  # Dairy Plant Suitability Map
-  output$map <- renderLeaflet({
-    leaflet(merged_suitability) %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      addPolygons(
-        fillColor = ~pal_suit(index),
-        color = "blue",
-        weight = 1,
-        fillOpacity = 0.7,
-        label = ~lapply(paste0(
-          "<strong>", NAME, "</strong><br>",
-          "Suitability Score: ", index
-        ), htmltools::HTML),
-        labelOptions = labelOptions(
-          direction = "auto",
-          style = list("font-weight" = "normal"),
-          textsize = "14px"
-        )
-      ) %>%
-      addLegend(pal = pal_suit, values = merged_suitability$index, title = "Dairy Plant Suitability Score")
+  #Reactive for weather API data
+  reactive_data_weather <- reactive({
+    weather_data %>%
+      filter(time == input$selected_date) %>%
+      group_by(county) %>%
+      summarise(avg_temp_f = mean(temp_f, na.rm = TRUE))
+  })
+  reactive_data_humidity <- reactive({
+    weather_data %>%
+      filter(time == input$selected_date) %>%
+      group_by(county) %>%
+      summarise(humidity_mean = mean(humidity_index, na.rm = TRUE))
   })
   
+  # Reactive years for fetching
+  years_to_fetch <- reactive({
+    current_year <- as.numeric(format(Sys.Date(), "%Y"))
+    seq(current_year - 9, current_year)
+  })
+  
+  # Fetch raw dairy cow inventory
+  dairy_cows_data <- reactive({
+    fetch_dairy_cows(years_to_fetch())
+  })
+  
+  # Cleaned VA dairy cow inventory
+  dairy_cows_va <- reactive({
+    df <- dairy_cows_data()
+    req(df)
+    df %>%
+      filter(toupper(county_name) %in% target_counties) %>%
+      mutate(
+        COUNTY = toupper(county_name),
+        YEAR = as.numeric(year),
+        COWS = as.numeric(Value)
+      ) %>%
+      select(COUNTY, YEAR, COWS) %>%
+      filter(!is.na(COWS))
+  })
+  
+  # Milk production efficiency (monthly)
+  monthly_efficiency <- reactive({
+    req(dairy_cows_va())
+    milk_data %>%
+      filter(COUNTY %in% target_counties, YEAR == 2024) %>%
+      left_join(dairy_cows_va() %>% filter(YEAR == 2024), by = "COUNTY") %>%
+      filter(!is.na(COWS), COWS > 0) %>%
+      mutate(efficiency_lbs_per_cow = `MILK (lbs)` / COWS)
+  })
+  
+  # Monthly summary
+  monthly_efficiency_summary <- reactive({
+    req(monthly_efficiency())
+    monthly_efficiency() %>%
+      group_by(COUNTY) %>%
+      summarise(
+        avg_efficiency = round(mean(efficiency_lbs_per_cow, na.rm = TRUE), 1),
+        best_month = MONTH_NAME[which.max(efficiency_lbs_per_cow)],
+        best_month_eff = round(max(efficiency_lbs_per_cow, na.rm = TRUE), 1),
+        .groups = "drop"
+      )
+  })
+  
+  
+  # Join milk + cow inventory for yearly composite calcs
+  combined_data <- reactive({
+    req(dairy_cows_va())
+    full_join(
+      milk_data %>% rename(MILK_LBS = `MILK (lbs)`),
+      dairy_cows_va(),
+      by = c("COUNTY", "YEAR")
+    ) %>%
+      filter(COUNTY %in% target_counties)
+  })
+  
+  # Flag incomplete data
+  combined_data_flagged <- reactive({
+    combined_data() %>%
+      mutate(data_flag = case_when(
+        is.na(MILK_LBS) & is.na(COWS) ~ "❌ Missing Milk & Cow Data",
+        is.na(MILK_LBS) ~ "⚠️ Missing Milk Data",
+        is.na(COWS) ~ "⚠️ Missing Cow Inventory",
+        COWS == 0 ~ "⚠️ Zero Cows Reported",
+        TRUE ~ "✅ OK"
+      ))
+  })
+  
+  # Composite suitability calculation
+  composite_data <- reactive({
+    req(is.data.frame(combined_data()), is.data.frame(accessibility_scores_df))
+    efficiency_df <- combined_data() %>%
+      filter(YEAR == 2024) %>%
+      group_by(COUNTY) %>%
+      summarise(
+        total_milk = sum(MILK_LBS, na.rm = TRUE),
+        total_cows = sum(COWS, na.rm = TRUE),
+        milk_efficiency = ifelse(total_cows > 0, total_milk / (total_cows * 12), NA_real_),
+        .groups = "drop"
+      )
+    # Make sure this returns a data frame, not a character vector
+    county_names_df <- st_drop_geometry(target_va_counties)[, c("NAME"), drop = FALSE]
+    
+    left_join(
+      left_join(
+        county_names_df,
+        accessibility_scores_df,
+        by = "NAME"
+      ),
+      efficiency_df,
+      by = c("NAME" = "COUNTY")
+    ) %>%
+      mutate(
+        efficiency_score = rescale(milk_efficiency, to = c(0, 100), na.rm = TRUE),
+        inventory_score = rescale(total_cows, to = c(0, 100), na.rm = TRUE),
+        composite_index = round(0.4 * efficiency_score + 0.3 * inventory_score + 0.3 * score, 1)
+      )
+  })
+  merged_suitability <- reactive({
+    target_va_counties %>% left_join(composite_data(), by = "NAME")
+  })
+  
+  
+  # Map
+  output$map <- renderLeaflet({
+    data <- merged_suitability()
+    pal_suit <- colorNumeric(palette = "YlOrRd", domain = data$composite_index)
+    
+    leaflet(data) %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      addPolygons(
+        fillColor = ~pal_suit(composite_index),
+        color = "maroon2", weight = 1, fillOpacity = 0.7,
+        label = ~lapply(paste0(
+          "<strong>", NAME, "</strong><br>",
+          "Composite Score: <b>", composite_index, "</b><br>",
+          "Efficiency: ", round(milk_efficiency, 1), " lbs/cow/month<br>",
+          "Inventory: ", formatC(total_cows, format = "d", big.mark = ","), " cows<br>",
+          "Accessibility Score: ", round(score, 1)
+        ), htmltools::HTML)
+      ) %>%
+      addLegend(pal = pal_suit, values = data$composite_index, title = "Composite Score")
+  })
+  
+  
+  # Fix Top 5 counties table
   output$top5_table <- renderTable({
-    merged_suitability %>%
+    merged_suitability() %>%
       st_drop_geometry() %>%
-      arrange(desc(index)) %>%
-      select(NAME, index) %>%
+      arrange(desc(composite_index)) %>%
+      select(NAME, composite_index) %>%
       slice_head(n = 5)
   })
   
-  # Milk Production Line Graph
+  
+  # County comparison table
+  output$county_comparison_table <- renderTable({
+    req(input$compare_counties)
+    composite_data() %>%
+      filter(NAME %in% input$compare_counties) %>%
+      left_join(
+        monthly_efficiency_summary() %>%
+          rename(Best_Month = best_month, Best_Month_Efficiency = best_month_eff),
+        by = c("NAME" = "COUNTY")
+      ) %>%
+      transmute(
+        County = NAME,
+        `Composite Score` = composite_index,
+        `Avg Monthly Efficiency (lbs/cow)` = round(milk_efficiency, 1),
+        `Total Cow Inventory` = formatC(total_cows, format = "d", big.mark = ","),
+        `Accessibility Score` = round(score, 1),
+        `Best Month` = Best_Month,
+        `Efficiency in Best Month` = Best_Month_Efficiency
+      )
+  })
+  
   output$county_selector <- renderUI({
     selectInput("selected_counties", "Counties:",
                 choices = sort(unique(milk_data$COUNTY[milk_data$COUNTY %in% target_counties])),
                 selected = head(sort(unique(milk_data$COUNTY[milk_data$COUNTY %in% target_counties])), 3),
-                multiple = TRUE
-    )
+                multiple = TRUE)
   })
   
   output$line_plot <- renderPlot({
     req(input$selected_counties)
-    filtered_data <- milk_data %>%
-      filter(COUNTY %in% input$selected_counties)
-    
+    filtered_data <- milk_data %>% filter(COUNTY %in% input$selected_counties)
     filtered_data$MONTH <- factor(filtered_data$MONTH, levels = month.name, ordered = TRUE)
-    
-    ggplot(filtered_data, aes(x = MONTH, y = `MILK (lbs)`, color = COUNTY, group = COUNTY)) +
-      geom_line(size = 1.2) +
-      geom_point(size = 2) +
+    filtered_data <- filtered_data %>%
+      mutate(cow_icon = "https://static.vecteezy.com/system/resources/previews/007/480/000/original/icon-cow-suitable-for-garden-symbol-glyph-style-simple-design-editable-design-template-simple-symbol-illustration-vector.jpg")
+    ggplot(filtered_data, aes(x = MONTH, y = `MILK (lbs)`, group = COUNTY)) +
+      geom_line(color = "gray70") +
+      geom_image(aes(image = cow_icon, color = COUNTY), size = 0.05) +
       scale_x_discrete(expand = c(0.01, 0)) +
       scale_y_continuous(labels = scales::comma) +
       theme_minimal() +
@@ -299,50 +514,37 @@ server <- function(input, output, session) {
       theme(plot.title = element_text(size = 16, face = "bold"))
   })
   
-  # Milk Production Table and Average
   output$milk_table <- DT::renderDataTable({
     req(input$milk_county)
-    milk_data %>%
-      filter(COUNTY == input$milk_county)
+    milk_data %>% filter(COUNTY == input$milk_county)
   })
   
   output$milk_avg <- renderUI({
-    req(input$milk_county)
     avg_all_months <- milk_data %>%
       filter(COUNTY == input$milk_county) %>%
       group_by(YEAR) %>%
       summarise(`Average MILK (lbs)` = mean(`MILK (lbs)`, na.rm = TRUE), .groups = 'drop')
-    
-    avg_text <- paste(
-      paste0("<b>", input$milk_county, "</b><br>",
-             paste0("Year ", avg_all_months$YEAR, ": ", scales::comma(avg_all_months$`Average MILK (lbs)`), " lbs")
-      ),
+    avg_text <- paste0(
+      "<b>", input$milk_county, "</b><br>",
+      paste0("Year ", avg_all_months$YEAR, ": ", scales::comma(avg_all_months$`Average MILK (lbs)`), " lbs"),
       collapse = "<br>"
     )
-    
     HTML(paste0("<h3 style='margin-top:0;'>Average Monthly Milk Output by Year</h3>", avg_text))
   })
   
-  # Roads & Accessibility Map
   output$roads_map <- renderLeaflet({
-    leaflet(merged) %>%
+    leaflet(merged_accessibility) %>%
       addProviderTiles("CartoDB.Positron") %>%
       addPolygons(
         fillColor = ~pal_access(score),
-        color = "black",
-        weight = 1,
-        fillOpacity = 0.7,
-        label = ~lapply(paste0(
-          "<strong>", NAME, "</strong><br>",
-          "Accessibility Score: ", round(score, 1)
-        ), htmltools::HTML),
+        color = "black", weight = 1, fillOpacity = 0.7,
+        label = ~lapply(paste0("<strong>", NAME, "</strong><br>Accessibility Score: ", round(score, 1)), htmltools::HTML),
         labelOptions = labelOptions(direction = "auto", style = list("font-weight" = "normal"), textsize = "14px")
       ) %>%
       addPolylines(data = primary_secondary_roads, color = "blue", weight = 2, opacity = 0.6) %>%
-      addLegend(pal = pal_access, values = merged$score, title = "Accessibility Score")
+      addLegend(pal = pal_access, values = merged_accessibility$score, title = "Accessibility Score")
   })
   
-  # Accessibility Bar Chart
   output$accessibility_bar <- renderPlot({
     ggplot(accessibility_scores, aes(x = reorder(NAME, score), y = score, fill = score)) +
       geom_col() +
@@ -350,6 +552,155 @@ server <- function(input, output, session) {
       scale_fill_gradient(low = "lightblue", high = "blue") +
       labs(title = "Accessibility Scores by County", x = "County", y = "Score") +
       theme_minimal()
+  })
+  
+  output$cow_inventory_table <- renderDT({
+    dairy_cows_va() %>% filter(COUNTY == input$cow_county)
+  })
+  
+  output$cow_inventory_plot <- renderPlot({
+    df <- dairy_cows_va() %>% filter(COUNTY == input$cow_county)
+    ggplot(df, aes(x = YEAR, y = COWS)) +
+      geom_line(color = "forestgreen", size = 1.2) +
+      geom_point(color = "darkgreen", size = 3) +
+      scale_y_continuous(labels = scales::comma) +
+      labs(title = paste("Dairy Cow Inventory Over Time in", input$cow_county), x = "Year", y = "Number of Dairy Cows") +
+      theme_minimal()
+  })
+  
+  output$monthly_efficiency_table <- renderTable({
+    monthly_efficiency_summary() %>%
+      rename(
+        County = COUNTY,
+        `Avg Efficiency (lbs/cow/month)` = avg_efficiency,
+        `Best Month` = best_month,
+        `Efficiency in Best Month` = best_month_eff
+      )
+  })
+  
+  output$data_quality_table <- DT::renderDataTable({
+    combined_data_flagged() %>%
+      filter(data_flag != "✅ OK") %>%
+      select(COUNTY, YEAR, MILK_LBS, COWS, data_flag)
+  })
+  
+  output$efficiency_county_selector <- renderUI({
+    selectInput("efficiency_counties", "Counties:",
+                choices = sort(unique(combined_data()$COUNTY)),
+                selected = head(sort(unique(combined_data()$COUNTY)), 3),
+                multiple = TRUE)
+  })
+  
+  output$efficiency_plot <- renderPlot({
+    filtered <- combined_data() %>%
+      filter(COUNTY %in% input$efficiency_counties, YEAR == input$year_efficiency, !is.na(COWS), !is.na(MILK_LBS))
+    efficiency_df <- filtered %>%
+      group_by(COUNTY) %>%
+      summarise(
+        total_milk = sum(MILK_LBS),
+        total_cows = sum(COWS),
+        efficiency = ifelse(total_cows > 0, total_milk / (total_cows * 12), NA_real_),
+        .groups = "drop"
+      )
+    ggplot(efficiency_df, aes(x = reorder(COUNTY, efficiency), y = efficiency)) +
+      geom_col(fill = "#8bc34a") +
+      coord_flip() +
+      labs(title = paste("Milk Efficiency (lbs per cow per month) in", input$year_efficiency), y = "Milk per Cow (lbs/month)") +
+      theme_minimal() +
+      theme(plot.title = element_text(size = 16, face = "bold"), axis.text = element_text(size = 12))
+  })
+  
+  output$efficiency_summary_table <- DT::renderDataTable({
+    df <- combined_data() %>% filter(COUNTY %in% input$efficiency_counties, !is.na(COWS), !is.na(MILK_LBS))
+    summary_data <- df %>% group_by(COUNTY) %>% group_map(~ {
+      data_sub <- .x
+      group_name <- .y$COUNTY
+      cow_sd <- sd(data_sub$COWS, na.rm = TRUE)
+      milk_sd <- sd(data_sub$MILK_LBS, na.rm = TRUE)
+      if (cow_sd > 0 && milk_sd > 0) {
+        cor_val <- cor(data_sub$COWS, data_sub$MILK_LBS, use = "complete.obs")
+        cor_test <- cor.test(data_sub$COWS, data_sub$MILK_LBS)
+        p_val <- cor_test$p.value
+        slope <- coef(lm(MILK_LBS ~ COWS, data = data_sub))[2]
+        interpretation <- case_when(
+          is.na(cor_val) ~ "Not enough data",
+          p_val > 0.05 ~ "No significant relationship",
+          cor_val > 0 ~ "Positive: More cows -> more milk",
+          cor_val < 0 ~ "Negative: More cows -> less milk",
+          TRUE ~ "Unclear"
+        )
+      } else {
+        cor_val <- p_val <- slope <- NA_real_
+        interpretation <- "No variation"
+      }
+      tibble(COUNTY = group_name, cor_value = cor_val, p_value = p_val, lm_slope = slope, interpretation = interpretation)
+    }) %>% bind_rows()
+    datatable(summary_data, rownames = FALSE, options = list(pageLength = 10))
+  })
+  
+  output$temp_map <- renderLeaflet({
+    leaflet() %>%
+      addProviderTiles("CartoDB.Positron") %>%
+      setView(lng = -78.5, lat = 37.5, zoom = 7)
+  })
+  
+  observe({
+    if (input$radio == 1) {
+      map_data <- reactive_data_weather()
+      merged_weather <- weather_va_counties %>%
+        left_join(map_data, by = c("NAME" = "county"))
+      
+      pal <- colorNumeric(
+        c("purple", "blue", "green", "yellow", "orange", "red"),
+        domain = weather_data$temp_f,
+        na.color = "NA"
+      )
+      
+      merged_weather$label <- paste0(merged_weather$NAME, ": ",
+                             round(merged_weather$avg_temp_f, 1), "°F on ",
+                             input$selected_date)
+      
+      leafletProxy("temp_map", data = merged_weather) %>%
+        clearShapes() %>%
+        addPolygons(
+          fillColor = ~pal(avg_temp_f),
+          weight = 1,
+          color = "black",
+          fillOpacity = 0.7,
+          label = ~label
+        ) %>%
+        clearControls() %>%
+        addLegend("bottomright", pal = pal, values = weather_data$temp_f,
+                  title = "Average <br> Temp (°F)")
+    } else {
+      map_data <- reactive_data_humidity()
+      merged_weather <- va_counties %>%
+        left_join(map_data, by = c("NAME" = "county"))
+      
+      pal <- colorNumeric(
+        c("purple", "blue", "green", "yellow", "orange", "red"),
+        domain = weather_data$humidity_index,
+        na.color = "NA"
+      )
+      
+      merged_weather$label <- paste0(merged_weather$NAME, ": ",
+                             round(merged_weather$humidity_mean, 1), " on ",
+                             input$selected_date)
+      
+      leafletProxy("temp_map", data = merged_weather) %>%
+        clearShapes() %>%
+        addPolygons(
+          fillColor = ~pal(humidity_mean),
+          weight = 1,
+          color = "black",
+          fillOpacity = 0.7,
+          label = ~label
+        ) %>%
+        clearControls() %>%
+        addLegend("bottomright", pal = pal,
+                  values = weather_data$humidity_index,
+                  title = "Temperature <br> Humidity <br> Index")
+    }
   })
   
   observeEvent(input$show_info, {
@@ -360,62 +711,9 @@ server <- function(input, output, session) {
       footer = NULL
     ))
   })
-  # Output 3: Labor data setup
-  tidy_data <- series_df %>%
-    tidyr::unnest(cols = c(data))
-  latest_vals <- tidy_data %>%
-    mutate(value = as.numeric(value)) %>%
-    group_by(seriesID) %>%
-    arrange(desc(year), desc(periodName)) %>%
-    slice(1) %>%
-    ungroup() %>%
-    mutate(fips = substr(seriesID, 6, 10))
-  va_map_data <- va_counties_gw %>%
-    left_join(latest_vals, by = c("GEOID" = "fips"))
-  pal2 <- colorNumeric("YlOrRd", domain = va_map_data$value, na.color="transparent")
   
-  #Output 3: labor data map
-  output$labor_map <- renderLeaflet({
-    leaflet(va_map_data) %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      addPolygons(
-        fillColor = ~pal2(value),
-        weight = 1,
-        opacity = 1,
-        color = "white",
-        dashArray = "3",
-        fillOpacity = 0.7,
-        highlight = highlightOptions(
-          weight = 2,
-          color = "#777",
-          dashArray = "",
-          fillOpacity = 0.7,
-          bringToFront = TRUE),
-        label = ~paste(NAME, ": ", value, "%")
-      ) %>%
-      addLegend(pal = pal2, values = ~value, opacity = 0.7,
-                title = "Unemployment <br> Rate",
-                position = "topleft")
-  })
-  
-  # Output 4: groundwater map
-  output$groundwater_map <- renderLeaflet({
-    pal3 <- colorNumeric("Blues", domain = va_map_data2$avg_level, na.color="transparent")
-    
-    leaflet(va_map_data2) %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      addPolygons(
-        fillColor = ~ifelse(is.na(avg_level), "white", pal3(avg_level)),
-        fillOpacity = 0.8,
-        color = "#999999",
-        weight = 1,
-        label = ~paste0(NAME, ": ", ifelse(is.na(avg_level), "None", paste0(round(avg_level, 2), " ft"))) 
-      ) %>%
-      addLegend(pal = pal3, values = ~avg_level,
-                title = "Average <br> Groundwater <br> Level (ft)")
-  })
-  
-}
+} # End of server
 
-# Run the app
+
+# Run app
 shinyApp(ui, server)
