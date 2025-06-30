@@ -205,8 +205,10 @@ ui <- fluidPage(
              tabPanel("Dairy Cow Inventory 🐂",
                       sidebarLayout(
                         sidebarPanel(
-                          selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1])
+                          selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1]),
+                          helpText("Dairy Cow type can differ as organic and non-organic.")
                         ),
+                        
                         mainPanel(
                           DT::dataTableOutput("cow_inventory_table"),
                           plotOutput("cow_inventory_plot", height = "400px")
@@ -223,7 +225,7 @@ ui <- fluidPage(
                           helpText("Shows milk production efficiency: milk produced per dairy cow")
                         ),
                         mainPanel(
-                          h3("Milk Efficiency (lbs/cow per year)"),
+                          h3("Milk Efficiency (lbs/cow per day)"),
                           plotOutput("efficiency_plot", height = "400px"),
                           hr(),
                           h4("Correlation Summary: Cows vs. Milk Output"),
@@ -268,32 +270,36 @@ server <- function(input, output, session) {
         YEAR = as.numeric(year),
         COWS = as.numeric(Value)
       ) %>%
-      select(COUNTY, YEAR, COWS) %>%
+      group_by(COUNTY, YEAR) %>%
+      summarise(COWS = sum(COWS, na.rm = TRUE), .groups = "drop") %>%
       filter(!is.na(COWS))
   })
   
-  # Milk production efficiency (monthly)
+  
+  
+  # Monthly summary
   monthly_efficiency <- reactive({
     req(dairy_cows_va())
     milk_data %>%
       filter(COUNTY %in% target_counties, YEAR == 2024) %>%
       left_join(dairy_cows_va() %>% filter(YEAR == 2024), by = "COUNTY") %>%
       filter(!is.na(COWS), COWS > 0) %>%
-      mutate(efficiency_lbs_per_cow = `MILK (lbs)` / COWS)
-  })
-  
-  # Monthly summary
-  monthly_efficiency_summary <- reactive({
-    req(monthly_efficiency())
-    monthly_efficiency() %>%
-      group_by(COUNTY) %>%
-      summarise(
-        avg_efficiency = round(mean(efficiency_lbs_per_cow, na.rm = TRUE), 1),
-        best_month = MONTH_NAME[which.max(efficiency_lbs_per_cow)],
-        best_month_eff = round(max(efficiency_lbs_per_cow, na.rm = TRUE), 1),
-        .groups = "drop"
+      mutate(
+        efficiency_lbs_per_cow = `MILK (lbs)` / COWS / 30 # Use 30 for average daily milk per cow
       )
   })
+  
+  monthly_efficiency <- reactive({
+    req(dairy_cows_va())
+    milk_data %>%
+      filter(COUNTY %in% target_counties, YEAR == input$year_efficiency) %>%
+      left_join(dairy_cows_va() %>% filter(YEAR == input$year_efficiency), by = "COUNTY") %>%
+      filter(!is.na(COWS), COWS > 0) %>%
+      mutate(
+        efficiency_lbs_per_cow = `MILK (lbs)` / COWS / 30
+      )
+  })
+  
   
   
   # Join milk + cow inventory for yearly composite calcs
@@ -322,16 +328,20 @@ server <- function(input, output, session) {
   # Composite suitability calculation
   composite_data <- reactive({
     req(is.data.frame(combined_data()), is.data.frame(accessibility_scores_df))
+    
     efficiency_df <- combined_data() %>%
-      filter(YEAR == 2024) %>%
+      filter(YEAR == 2024, !is.na(MILK_LBS), !is.na(COWS), COWS > 0) %>%
+      mutate(
+        milk_efficiency = MILK_LBS / (COWS * 30) # Match same calculation as monthly_efficiency
+      ) %>%
       group_by(COUNTY) %>%
       summarise(
+        milk_efficiency = mean(milk_efficiency, na.rm = TRUE),
         total_milk = sum(MILK_LBS, na.rm = TRUE),
-        total_cows = sum(COWS, na.rm = TRUE),
-        milk_efficiency = ifelse(total_cows > 0, total_milk / (total_cows * 12), NA_real_),
+        total_cows = mean(COWS, na.rm = TRUE),
         .groups = "drop"
       )
-    # Make sure this returns a data frame, not a character vector
+    
     county_names_df <- st_drop_geometry(target_va_counties)[, c("NAME"), drop = FALSE]
     
     left_join(
@@ -349,6 +359,8 @@ server <- function(input, output, session) {
         composite_index = round(0.4 * efficiency_score + 0.3 * inventory_score + 0.3 * score, 1)
       )
   })
+  
+  
   merged_suitability <- reactive({
     target_va_counties %>% left_join(composite_data(), by = "NAME")
   })
@@ -489,7 +501,7 @@ server <- function(input, output, session) {
     monthly_efficiency_summary() %>%
       rename(
         County = COUNTY,
-        `Avg Efficiency (lbs/cow/month)` = avg_efficiency,
+        `Avg Efficiency (lbs/cow/day)` = avg_efficiency,
         `Best Month` = best_month,
         `Efficiency in Best Month` = best_month_eff
       )
@@ -509,23 +521,58 @@ server <- function(input, output, session) {
   })
   
   output$efficiency_plot <- renderPlot({
-    filtered <- combined_data() %>%
-      filter(COUNTY %in% input$efficiency_counties, YEAR == input$year_efficiency, !is.na(COWS), !is.na(MILK_LBS))
-    efficiency_df <- filtered %>%
+    req(input$efficiency_counties)
+    df <- monthly_efficiency() %>%
+      filter(COUNTY %in% input$efficiency_counties)
+    
+    ggplot(df, aes(x = MONTH_NAME, y = efficiency_lbs_per_cow, fill = COUNTY)) +
+      geom_col(position = "dodge") +
+      labs(
+        title = paste("Milk Efficiency (lbs per cow per day) in", input$year_efficiency),
+        x = "Month",
+        y = "Efficiency (lbs/cow/day)"
+      ) +
+      theme_minimal()
+  })
+  
+  
+  
+  composite_data <- reactive({
+    req(is.data.frame(combined_data()), is.data.frame(accessibility_scores_df))
+    
+    efficiency_df <- combined_data() %>%
+      filter(YEAR == 2024, !is.na(MILK_LBS), !is.na(COWS), COWS > 0) %>%
+      mutate(
+        milk_efficiency = MILK_LBS / (COWS * 12)  # original logic: yearly efficiency per cow per month
+      ) %>%
       group_by(COUNTY) %>%
       summarise(
-        total_milk = sum(MILK_LBS),
-        total_cows = sum(COWS),
-        efficiency = ifelse(total_cows > 0, total_milk / (total_cows * 12), NA_real_),
+        milk_efficiency = mean(milk_efficiency, na.rm = TRUE),
+        total_milk = sum(MILK_LBS, na.rm = TRUE),
+        total_cows = mean(COWS, na.rm = TRUE),
         .groups = "drop"
       )
-    ggplot(efficiency_df, aes(x = reorder(COUNTY, efficiency), y = efficiency)) +
-      geom_col(fill = "#8bc34a") +
-      coord_flip() +
-      labs(title = paste("Milk Efficiency (lbs per cow per month) in", input$year_efficiency), y = "Milk per Cow (lbs/month)") +
-      theme_minimal() +
-      theme(plot.title = element_text(size = 16, face = "bold"), axis.text = element_text(size = 12))
+    
+    county_names_df <- st_drop_geometry(target_va_counties)[, c("NAME"), drop = FALSE]
+    
+    left_join(
+      left_join(
+        county_names_df,
+        accessibility_scores_df,
+        by = "NAME"
+      ),
+      efficiency_df,
+      by = c("NAME" = "COUNTY")
+    ) %>%
+      mutate(
+        efficiency_score = rescale(milk_efficiency, to = c(0, 100), na.rm = TRUE),
+        inventory_score = rescale(total_cows, to = c(0, 100), na.rm = TRUE),
+        composite_index = round(0.4 * efficiency_score + 0.3 * inventory_score + 0.3 * score, 1)
+      )
   })
+  
+  
+  
   
   output$efficiency_summary_table <- DT::renderDataTable({
     df <- combined_data() %>% filter(COUNTY %in% input$efficiency_counties, !is.na(COWS), !is.na(MILK_LBS))
@@ -563,14 +610,5 @@ server <- function(input, output, session) {
       footer = NULL
     ))
   })
-  
-} # End of server
-
-
-
-  
-
-
-
-# Run app
+}
 shinyApp(ui, server)
