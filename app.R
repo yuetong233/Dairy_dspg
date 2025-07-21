@@ -1,10 +1,8 @@
-
 library(shiny)
 library(tigris)
 library(sf)
 library(leaflet)
 library(dplyr)
-library(tigris)
 library(ggplot2)
 library(readxl)
 library(lubridate)
@@ -15,7 +13,6 @@ library(bslib)
 library(ggimage)
 library(tidyr)
 library(purrr)
-options(tigris_use_cache = TRUE)
 
 # Authenticate with NASS API
 nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
@@ -31,50 +28,6 @@ target_counties <- toupper(c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM",
                              "PITTSYLVANIA", "FRANKLIN"))
 
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
-
-weather_va_counties <- target_va_counties
-weather_va_counties$centroid <- st_centroid(weather_va_counties$geometry)
-coords <- st_coordinates(weather_va_counties$centroid)
-weather_va_counties$lat <- coords[,2]
-weather_va_counties$lon <- coords[,1]
-
-# Download weather data from Open-Meteo
-full_data <- list()
-for (i in 1:nrow(va_counties)) {
-  lat <- weather_va_counties$lat[i]
-  lon <- weather_va_counties$lon[i]
-  name <- weather_va_counties$NAME[i]
-  
-  res <- GET("https://archive-api.open-meteo.com/v1/archive",
-             query = list(
-               latitude = lat,
-               longitude = lon,
-               start_date = "2024-01-01",
-               end_date = as.character(Sys.Date() - 1),
-               daily = "temperature_2m_mean,relative_humidity_2m_mean",
-               timezone = "America/New_York"
-             ))
-  
-  if (status_code(res) == 200) {
-    data <- fromJSON(content(res, as = "text"))
-    if (!is.null(data$daily)) {
-      daily <- data$daily
-      daily$county <- name
-      full_data[[name]] <- as.data.frame(daily)
-    }
-  } else {
-    warning(paste("Failed to get data for", name))
-  }
-}
-#Operations on weather_data
-weather_data <- bind_rows(full_data)
-weather_data$temp_f <- weather_data$temperature_2m_mean * 9/5 + 32
-weather_data$time <- as.Date(weather_data$time)
-
-temp_f <- weather_data$temp_f
-relative <- weather_data$relative_humidity_2m_mean
-weather_data$humidity_index <- (temp_f) - (0.55 - 0.0055 * relative) * 
-  (temp_f - 58)
 
 # Load milk production data from your file
 milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/milk_production.xlsx") %>%
@@ -121,7 +74,9 @@ merged_accessibility <- target_va_counties %>%
   left_join(accessibility_scores_df, by = "NAME")
 
 
+
 # Update color palette for map
+
 pal_access <- colorNumeric(palette = "Blues", domain = merged_accessibility$score, na.color = "#f0f0f0")
 
 # Function to fetch dairy cows data for last 10 years from API
@@ -250,8 +205,10 @@ ui <- fluidPage(
              tabPanel("Dairy Cow Inventory 🐂",
                       sidebarLayout(
                         sidebarPanel(
-                          selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1])
+                          selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1]),
+                          helpText("Dairy Cow type can differ as organic and non-organic.")
                         ),
+                        
                         mainPanel(
                           DT::dataTableOutput("cow_inventory_table"),
                           plotOutput("cow_inventory_plot", height = "400px")
@@ -268,7 +225,7 @@ ui <- fluidPage(
                           helpText("Shows milk production efficiency: milk produced per dairy cow")
                         ),
                         mainPanel(
-                          h3("Milk Efficiency (lbs/cow per year)"),
+                          h3("Milk Efficiency (lbs/cow per day)"),
                           plotOutput("efficiency_plot", height = "400px"),
                           hr(),
                           h4("Correlation Summary: Cows vs. Milk Output"),
@@ -281,30 +238,6 @@ ui <- fluidPage(
                           tableOutput("monthly_efficiency_table")
                         )
                       )
-             ),
-             
-             tabPanel("Weather Data",
-                      sidebarLayout(
-                        sidebarPanel(
-                          sliderInput("selected_date",
-                                      "Select Date:",
-                                      min = min(weather_data$time),
-                                      max = max(weather_data$time),
-                                      value = min(weather_data$time),
-                                      timeFormat = "%Y-%m-%d",
-                                      step = 1,
-                                      animate = animationOptions(interval = 50, loop = TRUE)),
-                          radioButtons( 
-                            inputId = "radio", 
-                            label = "What weather feature do you want to see?", 
-                            choices = list( 
-                              "Temperature (F)" = 1, 
-                              "Temperature-Humidity Index (THI)" = 2))
-                        ),
-                        mainPanel(
-                          leafletOutput("temp_map", height = "600px")
-                        )
-                      )
              )
   )
 )
@@ -314,20 +247,6 @@ ui <- fluidPage(
 # Server logic for VA Dairy Dashboard
 
 server <- function(input, output, session) {
-  
-  #Reactive for weather API data
-  reactive_data_weather <- reactive({
-    weather_data %>%
-      filter(time == input$selected_date) %>%
-      group_by(county) %>%
-      summarise(avg_temp_f = mean(temp_f, na.rm = TRUE))
-  })
-  reactive_data_humidity <- reactive({
-    weather_data %>%
-      filter(time == input$selected_date) %>%
-      group_by(county) %>%
-      summarise(humidity_mean = mean(humidity_index, na.rm = TRUE))
-  })
   
   # Reactive years for fetching
   years_to_fetch <- reactive({
@@ -351,32 +270,36 @@ server <- function(input, output, session) {
         YEAR = as.numeric(year),
         COWS = as.numeric(Value)
       ) %>%
-      select(COUNTY, YEAR, COWS) %>%
+      group_by(COUNTY, YEAR) %>%
+      summarise(COWS = sum(COWS, na.rm = TRUE), .groups = "drop") %>%
       filter(!is.na(COWS))
   })
   
-  # Milk production efficiency (monthly)
+  
+  
+  # Monthly summary
   monthly_efficiency <- reactive({
     req(dairy_cows_va())
     milk_data %>%
       filter(COUNTY %in% target_counties, YEAR == 2024) %>%
       left_join(dairy_cows_va() %>% filter(YEAR == 2024), by = "COUNTY") %>%
       filter(!is.na(COWS), COWS > 0) %>%
-      mutate(efficiency_lbs_per_cow = `MILK (lbs)` / COWS)
-  })
-  
-  # Monthly summary
-  monthly_efficiency_summary <- reactive({
-    req(monthly_efficiency())
-    monthly_efficiency() %>%
-      group_by(COUNTY) %>%
-      summarise(
-        avg_efficiency = round(mean(efficiency_lbs_per_cow, na.rm = TRUE), 1),
-        best_month = MONTH_NAME[which.max(efficiency_lbs_per_cow)],
-        best_month_eff = round(max(efficiency_lbs_per_cow, na.rm = TRUE), 1),
-        .groups = "drop"
+      mutate(
+        efficiency_lbs_per_cow = `MILK (lbs)` / COWS / 30 # Use 30 for average daily milk per cow
       )
   })
+  
+  monthly_efficiency <- reactive({
+    req(dairy_cows_va())
+    milk_data %>%
+      filter(COUNTY %in% target_counties, YEAR == input$year_efficiency) %>%
+      left_join(dairy_cows_va() %>% filter(YEAR == input$year_efficiency), by = "COUNTY") %>%
+      filter(!is.na(COWS), COWS > 0) %>%
+      mutate(
+        efficiency_lbs_per_cow = `MILK (lbs)` / COWS / 30
+      )
+  })
+  
   
   
   # Join milk + cow inventory for yearly composite calcs
@@ -405,16 +328,20 @@ server <- function(input, output, session) {
   # Composite suitability calculation
   composite_data <- reactive({
     req(is.data.frame(combined_data()), is.data.frame(accessibility_scores_df))
+    
     efficiency_df <- combined_data() %>%
-      filter(YEAR == 2024) %>%
+      filter(YEAR == 2024, !is.na(MILK_LBS), !is.na(COWS), COWS > 0) %>%
+      mutate(
+        milk_efficiency = MILK_LBS / (COWS * 30) # Match same calculation as monthly_efficiency
+      ) %>%
       group_by(COUNTY) %>%
       summarise(
+        milk_efficiency = mean(milk_efficiency, na.rm = TRUE),
         total_milk = sum(MILK_LBS, na.rm = TRUE),
-        total_cows = sum(COWS, na.rm = TRUE),
-        milk_efficiency = ifelse(total_cows > 0, total_milk / (total_cows * 12), NA_real_),
+        total_cows = mean(COWS, na.rm = TRUE),
         .groups = "drop"
       )
-    # Make sure this returns a data frame, not a character vector
+    
     county_names_df <- st_drop_geometry(target_va_counties)[, c("NAME"), drop = FALSE]
     
     left_join(
@@ -432,6 +359,8 @@ server <- function(input, output, session) {
         composite_index = round(0.4 * efficiency_score + 0.3 * inventory_score + 0.3 * score, 1)
       )
   })
+  
+  
   merged_suitability <- reactive({
     target_va_counties %>% left_join(composite_data(), by = "NAME")
   })
@@ -572,7 +501,7 @@ server <- function(input, output, session) {
     monthly_efficiency_summary() %>%
       rename(
         County = COUNTY,
-        `Avg Efficiency (lbs/cow/month)` = avg_efficiency,
+        `Avg Efficiency (lbs/cow/day)` = avg_efficiency,
         `Best Month` = best_month,
         `Efficiency in Best Month` = best_month_eff
       )
@@ -592,23 +521,58 @@ server <- function(input, output, session) {
   })
   
   output$efficiency_plot <- renderPlot({
-    filtered <- combined_data() %>%
-      filter(COUNTY %in% input$efficiency_counties, YEAR == input$year_efficiency, !is.na(COWS), !is.na(MILK_LBS))
-    efficiency_df <- filtered %>%
+    req(input$efficiency_counties)
+    df <- monthly_efficiency() %>%
+      filter(COUNTY %in% input$efficiency_counties)
+    
+    ggplot(df, aes(x = MONTH_NAME, y = efficiency_lbs_per_cow, fill = COUNTY)) +
+      geom_col(position = "dodge") +
+      labs(
+        title = paste("Milk Efficiency (lbs per cow per day) in", input$year_efficiency),
+        x = "Month",
+        y = "Efficiency (lbs/cow/day)"
+      ) +
+      theme_minimal()
+  })
+  
+  
+  
+  composite_data <- reactive({
+    req(is.data.frame(combined_data()), is.data.frame(accessibility_scores_df))
+    
+    efficiency_df <- combined_data() %>%
+      filter(YEAR == 2024, !is.na(MILK_LBS), !is.na(COWS), COWS > 0) %>%
+      mutate(
+        milk_efficiency = MILK_LBS / (COWS * 12)  # original logic: yearly efficiency per cow per month
+      ) %>%
       group_by(COUNTY) %>%
       summarise(
-        total_milk = sum(MILK_LBS),
-        total_cows = sum(COWS),
-        efficiency = ifelse(total_cows > 0, total_milk / (total_cows * 12), NA_real_),
+        milk_efficiency = mean(milk_efficiency, na.rm = TRUE),
+        total_milk = sum(MILK_LBS, na.rm = TRUE),
+        total_cows = mean(COWS, na.rm = TRUE),
         .groups = "drop"
       )
-    ggplot(efficiency_df, aes(x = reorder(COUNTY, efficiency), y = efficiency)) +
-      geom_col(fill = "#8bc34a") +
-      coord_flip() +
-      labs(title = paste("Milk Efficiency (lbs per cow per month) in", input$year_efficiency), y = "Milk per Cow (lbs/month)") +
-      theme_minimal() +
-      theme(plot.title = element_text(size = 16, face = "bold"), axis.text = element_text(size = 12))
+    
+    county_names_df <- st_drop_geometry(target_va_counties)[, c("NAME"), drop = FALSE]
+    
+    left_join(
+      left_join(
+        county_names_df,
+        accessibility_scores_df,
+        by = "NAME"
+      ),
+      efficiency_df,
+      by = c("NAME" = "COUNTY")
+    ) %>%
+      mutate(
+        efficiency_score = rescale(milk_efficiency, to = c(0, 100), na.rm = TRUE),
+        inventory_score = rescale(total_cows, to = c(0, 100), na.rm = TRUE),
+        composite_index = round(0.4 * efficiency_score + 0.3 * inventory_score + 0.3 * score, 1)
+      )
   })
+  
+  
+  
   
   output$efficiency_summary_table <- DT::renderDataTable({
     df <- combined_data() %>% filter(COUNTY %in% input$efficiency_counties, !is.na(COWS), !is.na(MILK_LBS))
@@ -638,71 +602,6 @@ server <- function(input, output, session) {
     datatable(summary_data, rownames = FALSE, options = list(pageLength = 10))
   })
   
-  output$temp_map <- renderLeaflet({
-    leaflet() %>%
-      addProviderTiles("CartoDB.Positron") %>%
-      setView(lng = -78.5, lat = 37.5, zoom = 7)
-  })
-  
-  observe({
-    if (input$radio == 1) {
-      map_data <- reactive_data_weather()
-      merged_weather <- weather_va_counties %>%
-        left_join(map_data, by = c("NAME" = "county"))
-      
-      pal <- colorNumeric(
-        c("purple", "blue", "green", "yellow", "orange", "red"),
-        domain = weather_data$temp_f,
-        na.color = "NA"
-      )
-      
-      merged_weather$label <- paste0(merged_weather$NAME, ": ",
-                             round(merged_weather$avg_temp_f, 1), "°F on ",
-                             input$selected_date)
-      
-      leafletProxy("temp_map", data = merged_weather) %>%
-        clearShapes() %>%
-        addPolygons(
-          fillColor = ~pal(avg_temp_f),
-          weight = 1,
-          color = "black",
-          fillOpacity = 0.7,
-          label = ~label
-        ) %>%
-        clearControls() %>%
-        addLegend("bottomright", pal = pal, values = weather_data$temp_f,
-                  title = "Average <br> Temp (°F)")
-    } else {
-      map_data <- reactive_data_humidity()
-      merged_weather <- va_counties %>%
-        left_join(map_data, by = c("NAME" = "county"))
-      
-      pal <- colorNumeric(
-        c("purple", "blue", "green", "yellow", "orange", "red"),
-        domain = weather_data$humidity_index,
-        na.color = "NA"
-      )
-      
-      merged_weather$label <- paste0(merged_weather$NAME, ": ",
-                             round(merged_weather$humidity_mean, 1), " on ",
-                             input$selected_date)
-      
-      leafletProxy("temp_map", data = merged_weather) %>%
-        clearShapes() %>%
-        addPolygons(
-          fillColor = ~pal(humidity_mean),
-          weight = 1,
-          color = "black",
-          fillOpacity = 0.7,
-          label = ~label
-        ) %>%
-        clearControls() %>%
-        addLegend("bottomright", pal = pal,
-                  values = weather_data$humidity_index,
-                  title = "Temperature <br> Humidity <br> Index")
-    }
-  })
-  
   observeEvent(input$show_info, {
     showModal(modalDialog(
       title = "About the Score",
@@ -711,9 +610,5 @@ server <- function(input, output, session) {
       footer = NULL
     ))
   })
-  
-} # End of server
-
-
-# Run app
+}
 shinyApp(ui, server)
