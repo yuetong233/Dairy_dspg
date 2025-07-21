@@ -30,7 +30,7 @@ target_counties <- toupper(c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM",
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
 
 # Load milk production data from your file
-milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/milk_production.xlsx") %>%
+milk_data <- read_excel("milk_production.xlsx") %>%
   rename(`MILK (lbs)` = MILK) %>%
   mutate(
     COUNTY = toupper(COUNTY),
@@ -41,7 +41,7 @@ milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/milk_production.
   )
 
 # Load roads shapefile and process for accessibility scores
-roads_path <- "C:/Users/irmo2303/Downloads/DSPG_foler/tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
+roads_path <- "tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
 roads <- sf::st_read(roads_path, quiet = TRUE)
 primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S")) %>% st_transform(4326)
 # Join road segments with counties
@@ -140,15 +140,15 @@ ui <- fluidPage(
              tabPanel("Map View 🗺️",
                       leafletOutput("map", height = "700px"),
                       absolutePanel(
-                        top = 80, left = 20, width = 300, draggable = TRUE,
+                        top = 490, left = 75, width = 200, draggable = TRUE,
                         style = "background-color: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
                         tags$div(
                           style = "display: flex; align-items: center;",
-                          tags$h4("Top 5 Counties by Dairy Plant Suitability Score 🐮", style = "margin: 0;"),
+                          tags$h4("Top 5 Composite Scores by County 🐮", style = "margin: 10;"),
                           actionLink("show_info", label = NULL, icon = icon("info-circle"), style = "color: #5a3e1b; margin-left: 8px;")
                         ),
                         tableOutput("top5_table")
-                      )
+                      ) 
              ),
              
              tabPanel("Compare Counties 📊",
@@ -185,7 +185,8 @@ ui <- fluidPage(
                         ),
                         mainPanel(
                           htmlOutput("milk_avg"),
-                          DT::dataTableOutput("milk_table")
+                          DT::dataTableOutput("milk_table"),
+                          br()
                         )
                       )
              ),
@@ -235,7 +236,8 @@ ui <- fluidPage(
                           DT::dataTableOutput("data_quality_table"),
                           hr(),
                           h4("Top Counties by Avg Monthly Milk Efficiency (2024)"),
-                          tableOutput("monthly_efficiency_table")
+                          tableOutput("monthly_efficiency_table"),
+                          br()
                         )
                       )
              )
@@ -278,7 +280,7 @@ server <- function(input, output, session) {
   
   
   # Monthly summary
-  monthly_efficiency <- reactive({
+  monthly_efficiency_summary <- reactive({
     req(dairy_cows_va())
     milk_data %>%
       filter(COUNTY %in% target_counties, YEAR == 2024) %>%
@@ -369,13 +371,13 @@ server <- function(input, output, session) {
   # Map
   output$map <- renderLeaflet({
     data <- merged_suitability()
-    pal_suit <- colorNumeric(palette = "YlOrRd", domain = data$composite_index)
+    pal_suit <- colorNumeric(palette = "YlOrRd", domain = data$composite_index, na.color = "transparent")
     
     leaflet(data) %>%
       addProviderTiles("CartoDB.Positron") %>%
       addPolygons(
-        fillColor = ~pal_suit(composite_index),
-        color = "maroon2", weight = 1, fillOpacity = 0.7,
+        fillColor = ~ifelse(is.na(composite_index), "#aaaaaa", pal_suit(composite_index)),
+        color = "#333333", weight = 1, fillOpacity = 0.75,
         label = ~lapply(paste0(
           "<strong>", NAME, "</strong><br>",
           "Composite Score: <b>", composite_index, "</b><br>",
@@ -384,7 +386,7 @@ server <- function(input, output, session) {
           "Accessibility Score: ", round(score, 1)
         ), htmltools::HTML)
       ) %>%
-      addLegend(pal = pal_suit, values = data$composite_index, title = "Composite Score")
+      addLegend(pal = pal_suit, values = data$composite_index, title = "Composite <br>Score")
   })
   
   
@@ -394,7 +396,8 @@ server <- function(input, output, session) {
       st_drop_geometry() %>%
       arrange(desc(composite_index)) %>%
       select(NAME, composite_index) %>%
-      slice_head(n = 5)
+      slice_head(n = 5) %>%
+      rename("County Name" = NAME, "Score" = composite_index)
   })
   
   
@@ -445,8 +448,21 @@ server <- function(input, output, session) {
   
   output$milk_table <- DT::renderDataTable({
     req(input$milk_county)
-    milk_data %>% filter(COUNTY == input$milk_county)
+    selected_data <- milk_data %>% 
+      filter(COUNTY == input$milk_county) %>%
+      select(COUNTY, `MILK (lbs)`, MONTH_NAME, YEAR) %>%
+      mutate(formatted_num = prettyNum(`MILK (lbs)`, big.mark=","))
+    datatable(
+      selected_data %>% select(COUNTY, formatted_num, MONTH_NAME, YEAR),
+      colnames=c(
+        "County" = "COUNTY",
+        "Milk Production (lbs)" = "formatted_num",
+        "Month" = "MONTH_NAME",
+        "Year" = "YEAR"
+      )
+    )
   })
+  
   
   output$milk_avg <- renderUI({
     avg_all_months <- milk_data %>%
@@ -455,7 +471,7 @@ server <- function(input, output, session) {
       summarise(`Average MILK (lbs)` = mean(`MILK (lbs)`, na.rm = TRUE), .groups = 'drop')
     avg_text <- paste0(
       "<b>", input$milk_county, "</b><br>",
-      paste0("Year ", avg_all_months$YEAR, ": ", scales::comma(avg_all_months$`Average MILK (lbs)`), " lbs"),
+      paste0("Average Output for ", avg_all_months$YEAR, ": ", scales::comma(avg_all_months$`Average MILK (lbs)`), " lbs"),
       collapse = "<br>"
     )
     HTML(paste0("<h3 style='margin-top:0;'>Average Monthly Milk Output by Year</h3>", avg_text))
