@@ -115,14 +115,12 @@ fetch_dairy_cows <- function(years) {
   milk_df <- do.call(rbind, Filter(Negate(is.null), milk_cows_all))
   milk_df
 }
-
-# UI
-my_theme <- bs_theme(
-  bg = "#fff8f0",
-  fg = "#5a3e1b",
-  primary = "#8bc34a",
-  base_font = font_google("Patrick Hand")
-)
+collapsiblePanel <- function(title, content) {
+  tags$details(
+    tags$summary(tags$b(title)),
+    tags$div(style = "margin-top: 10px; margin-bottom: 15px;", content)
+  )
+}
 
 ui <- fluidPage(
   theme = my_theme,
@@ -149,6 +147,15 @@ ui <- fluidPage(
           border-radius: 12px;
           box-shadow: 0 0 15px rgba(90, 62, 27, 0.3);
         }
+        details summary {
+          cursor: pointer;
+          padding: 6px;
+          font-size: 16px;
+        }
+        details[open] summary {
+          font-weight: bold;
+          color: #5a3e1b;
+        }
       "))
              ),
              
@@ -161,19 +168,14 @@ ui <- fluidPage(
                                  uiOutput("optimal_county_text"),
                                  leafletOutput("interpolation_map", height = "700px")
                         )
-                        
                       ),
                       absolutePanel(
                         top = 80, left = 20, width = 320, draggable = TRUE,
                         style = "background-color: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
-                        
                         tags$h3("🏁 Choose Your Dairy Plant Priorities", style = "color: #5a3e1b; font-weight: bold; margin-top: 0;"),
-                        
                         sliderInput("weight_slider", "Preference for Farmers (%)", min = 0, max = 100, value = 50, step = 1),
                         tags$small("Slide to balance the needs of farmers vs. processors. 0 = processors only, 100 = farmers only.", style = "color: #555;"),
-                        
                         tags$hr(),
-                        
                         tags$div(
                           style = "display: flex; align-items: center; justify-content: space-between;",
                           tags$h4("Top 5 Counties by Suitability 🐮", style = "margin: 0;"),
@@ -182,8 +184,6 @@ ui <- fluidPage(
                         tableOutput("top5_table")
                       )
              ),
-             
-             
              
              tabPanel("Compare Counties 📊",
                       sidebarLayout(
@@ -198,33 +198,71 @@ ui <- fluidPage(
                         )
                       )
              ),
-             tabPanel("Milk Production 🥛",
-                      sidebarLayout(
-                        sidebarPanel(
-                          h4("Select County and Year 🐄📆"),
-                          selectInput("selected_county", "Choose a County:", choices = sort(target_counties), selected = "AUGUSTA"),
-                          selectInput("selected_year", "Choose a Year:", choices = sort(unique(milk_data$YEAR), decreasing = TRUE), selected = 2024),
-                          helpText("Shows total milk production by month for the selected county and year.")
-                        ),
-                        mainPanel(
-                          plotOutput("line_plot", height = "600px")
-                        )
+             
+             tabPanel("Cow Productivity🥛",
+                      tabsetPanel(id = "milk_tabs", selected = "Cow Productivity Model",
+                                  
+                                  tabPanel("Cow Productivity Model",
+                                           sidebarLayout(
+                                             sidebarPanel(
+                                               h4("Select Counties and Year"),
+                                               uiOutput("efficiency_county_selector"),
+                                               sliderInput("year_efficiency", "Select Year:", min = 2016, max = 2025, value = 2024, step = 1, sep = ""),
+                                               helpText("Shows milk production efficiency:Avg milk produced per dairy cow in a day")
+                                             ),
+                                             mainPanel(
+                                               h3("Milk Productivity (milk lbs/cow/per day)"),
+                                               
+                                               # Explanation at the top
+                                               tags$p("Milk productivity is calculated as the amount of milk (in pounds) produced per cow per day.
+          This metric helps assess how efficiently dairy farms are operating based on available livestock."),
+                                               
+                                               # Directly visible plot
+                                               plotOutput("efficiency_plot", height = "400px"),
+                                               
+                                               # Collapsible panels below
+                                               collapsiblePanel("Correlation Summary: Cows vs. Milk Output",
+                                                                DT::dataTableOutput("efficiency_summary_table")),
+                                               collapsiblePanel("Data Quality Check",
+                                                                DT::dataTableOutput("data_quality_table")),
+                                               collapsiblePanel("Top Counties by Avg Monthly Milk Productivity (2024)",
+                                                                tableOutput("monthly_efficiency_table"))
+                                             )
+                                           )
+                                  ),
+                                             
+
+                                  
+                                  tabPanel("Milk Overview",
+                                           sidebarLayout(
+                                             sidebarPanel(
+                                               selectInput("milk_county", "County:", choices = sort(target_counties)),
+                                               selectInput("selected_county", "Choose a County:", choices = sort(target_counties), selected = "AUGUSTA"),
+                                               selectInput("selected_year", "Choose a Year:", choices = sort(unique(milk_data$YEAR), decreasing = TRUE), selected = 2024)
+                                             ),
+                                             mainPanel(
+                                               htmlOutput("milk_avg"),
+                                               DT::dataTableOutput("milk_table"),
+                                               hr(),
+                                               plotOutput("line_plot", height = "600px")
+                                             )
+                                           )
+                                  ),
+                                  
+                                  tabPanel("Dairy Cow Inventory",
+                                           sidebarLayout(
+                                             sidebarPanel(
+                                               selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1]),
+                                               helpText("Dairy Cow type can differ as organic and non-organic.")
+                                             ),
+                                             mainPanel(
+                                               DT::dataTableOutput("cow_inventory_table"),
+                                               plotOutput("cow_inventory_plot", height = "400px")
+                                             )
+                                           )
+                                  )
                       )
-             ),
-             
-             
-             
-             tabPanel("Milk Production Table 🧾",
-                      sidebarLayout(
-                        sidebarPanel(
-                          selectInput("milk_county", "County:", choices = sort(target_counties))
-                        ),
-                        mainPanel(
-                          htmlOutput("milk_avg"),
-                          DT::dataTableOutput("milk_table")
-                        )
-                      )
-             ),
+             ),  
              
              tabPanel("Roads & Accessibility 🚜",
                       sidebarLayout(
@@ -244,8 +282,6 @@ ui <- fluidPage(
                       )
              ),
              
-             
-                        
              tabPanel("Transportation Costs 🚚",
                       sidebarLayout(
                         sidebarPanel(
@@ -261,7 +297,6 @@ ui <- fluidPage(
                           numericInput("operating_days", "Operating Days per Year:", value = 340),
                           actionButton("calc_btn", "💡 Calculate My Transportation Costs!")
                         ),
-                        
                         mainPanel(
                           h4("Transportation Cost Metrics"),
                           tableOutput("transport_metrics"),
@@ -274,52 +309,17 @@ ui <- fluidPage(
                           actionButton("vedp_button", "Explore More Lots on VEDP", 
                                        onclick = "window.open('https://sites.vedp.org/', '_blank')", 
                                        class = "btn-primary"),
-                          hr(),
-                        )
-                      )
-             ),
-             
-             
-             
-             tabPanel("Dairy Cow Inventory 🐂",
-                      sidebarLayout(
-                        sidebarPanel(
-                          selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1]),
-                          helpText("Dairy Cow type can differ as organic and non-organic.")
-                        ),
-                        
-                        mainPanel(
-                          DT::dataTableOutput("cow_inventory_table"),
-                          plotOutput("cow_inventory_plot", height = "400px")
-                        )
-                      )
-             ),
-             
-             tabPanel("Milk Efficiency 🐄📈",
-                      sidebarLayout(
-                        sidebarPanel(
-                          h4("Select Counties and Year"),
-                          uiOutput("efficiency_county_selector"),
-                          sliderInput("year_efficiency", "Select Year:", min = 2016, max = 2025, value = 2024, step = 1, sep = ""),
-                          helpText("Shows milk production efficiency: milk produced per dairy cow")
-                        ),
-                        mainPanel(
-                          h3("Milk Efficiency (lbs/cow per day)"),
-                          plotOutput("efficiency_plot", height = "400px"),
-                          hr(),
-                          h4("Correlation Summary: Cows vs. Milk Output"),
-                          DT::dataTableOutput("efficiency_summary_table"),
-                          hr(),
-                          h4("Data Quality Check"),
-                          DT::dataTableOutput("data_quality_table"),
-                          hr(),
-                          h4("Top Counties by Avg Monthly Milk Efficiency (2024)"),
-                          tableOutput("monthly_efficiency_table")
+                          hr()
                         )
                       )
              )
   )
 )
+
+      
+       
+  
+
 
 
 
