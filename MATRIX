@@ -1,0 +1,281 @@
+library(tigris)
+library(osrm)
+library(sf)
+vaco <- counties(state = 'VA')
+
+
+latx <- c()
+lonx <- c()
+laty <- c()
+lony <- c()
+
+dairy.fips2 <- c(51015, 51043, 51067, 51143, 51163, 51165, 51171) # Augusta, Clarke, Franklin, Pittsylvania, Rockbridge, Rockingham, Shenandoah
+
+for (d in dairy.fips2) {
+  print(d)
+  tmp <- vaco[which(vaco$GEOID == d),]
+  for (i in 1:nrow(vaco)) {
+    latx <- c(latx, as.numeric(tmp$INTPTLAT[1]))
+    lonx <- c(lonx, as.numeric(tmp$INTPTLON[1]))
+    laty <- c(laty, as.numeric(vaco$INTPTLAT[i]))
+    lony <- c(lony, as.numeric(vaco$INTPTLON[i]))
+  }
+}
+
+coordinates <- tibble(id = c(1:length(latx)), lat_x = latx, long_x = lonx, lat_y = laty, long_y = lony)
+
+
+origin <-  coordinates %>% 
+  # Subset your origin coordinates and the ID
+  select(id, long_x, lat_x) %>% 
+  # Rename the Variables 
+  rename(lon = long_x, 
+         lat = lat_x) %>% 
+  # Convert to data.frame object
+  as.data.frame()
+destination <- coordinates %>% 
+  # Subset your destination coordinates
+  select(id, long_y, lat_y) %>% 
+  # Rename the Variables
+  rename(lon = long_y, 
+         lat = lat_y) %>% 
+  # Convert to data.frame object
+  as.data.frame()
+
+
+## Create an empty list to initialize the loop
+commute_data <- list()
+
+## Use For Loop to iterate over values and calculate commute distance and times
+for (i in 1:nrow(coordinates)) {
+  print(i)
+  commute_data[[i]] <- osrmRoute(
+    # Origin Points
+    src = origin[i, 2:3], 
+    # Destination Points
+    dst = destination[i, 2:3],
+    # Simplify output 
+    overview = F, 
+    # Set mode of transportation (car, bike, or foot)
+    osrm.profile = "car"
+  )
+}
+## Combine the list output from the for loop into a single data frame
+commute_data <- as.data.frame(do.call(rbind, commute_data))
+
+## Add ID variable back in 
+commute_data$id <- coordinates$id
+commute_data
+
+
+# Do this again for processor locations
+
+
+latx <- c()
+lonx <- c()
+laty <- c()
+lony <- c()
+
+dairy.fips2 <- c(51760, 51810, 51013) # RVA, VA Beach, and Arlington
+
+for (d in dairy.fips2) {
+  print(d)
+  tmp <- vaco[which(vaco$GEOID == d),]
+  for (i in 1:nrow(vaco)) {
+    latx <- c(latx, as.numeric(tmp$INTPTLAT[1]))
+    lonx <- c(lonx, as.numeric(tmp$INTPTLON[1]))
+    laty <- c(laty, as.numeric(vaco$INTPTLAT[i]))
+    lony <- c(lony, as.numeric(vaco$INTPTLON[i]))
+  }
+}
+
+coordinates2 <- tibble(id = c(1:length(latx)), lat_x = latx, long_x = lonx, lat_y = laty, long_y = lony)
+
+
+origin <-  coordinates2 %>% 
+  # Subset your origin coordinates and the ID
+  select(id, long_x, lat_x) %>% 
+  # Rename the Variables 
+  rename(lon = long_x, 
+         lat = lat_x) %>% 
+  # Convert to data.frame object
+  as.data.frame()
+destination <- coordinates2 %>% 
+  # Subset your destination coordinates
+  select(id, long_y, lat_y) %>% 
+  # Rename the Variables
+  rename(lon = long_y, 
+         lat = lat_y) %>% 
+  # Convert to data.frame object
+  as.data.frame()
+
+
+## Create an empty list to initialize the loop
+commute_data2 <- list()
+
+## Use For Loop to iterate over values and calculate commute distance and times
+for (i in 1:nrow(coordinates2)) {
+  print(i)
+  commute_data2[[i]] <- osrmRoute(
+    # Origin Points
+    src = origin[i, 2:3], 
+    # Destination Points
+    dst = destination[i, 2:3],
+    # Simplify output 
+    overview = F, 
+    # Set mode of transportation (car, bike, or foot)
+    osrm.profile = "car"
+  )
+}
+## Combine the list output from the for loop into a single data frame
+commute_data2 <- as.data.frame(do.call(rbind, commute_data2))
+
+## Add ID variable back in 
+commute_data2$id <- coordinates2$id
+commute_data2
+
+
+
+
+
+
+
+
+
+
+
+
+library(dplyr)
+library(tidyr)
+
+# This assumes you have 7 dairy counties and all VA counties (or however many were used)
+n_dairy <- 7
+n_total <- nrow(commute_data) / n_dairy
+
+# Add source and destination indices
+commute_data <- commute_data %>%
+  mutate(
+    Source = rep(1:n_dairy, each = n_total),
+    Destination = rep(1:n_total, times = n_dairy)
+  )
+
+# Reshape to wide format (duration matrix)
+duration_matrix <- commute_data %>%
+  select(Source, Destination, duration) %>%
+  pivot_wider(names_from = Destination, values_from = duration) %>%
+  select(-Source) %>% 
+  as.matrix()
+n_proc <- 3
+n_total2 <- nrow(commute_data2) / n_proc
+
+commute_data2 <- commute_data2 %>%
+  mutate(
+    Source = rep(1:n_proc, each = n_total2),
+    Destination = rep(1:n_total2, times = n_proc)
+  )
+
+duration_matrix2 <- commute_data2 %>%
+  select(Source, Destination, duration) %>%
+  pivot_wider(names_from = Destination, values_from = duration) %>%
+  select(-Source) %>% 
+  as.matrix()
+milk_prod <- c(11574771, 1000000, 9063843, 13980602, 1484781, 45135529, 1694581)
+D <- diag(milk_prod)
+C <- D %*% duration_matrix
+col_sums <- colSums(C)
+optimal_column <- which.min(col_sums)
+vaco$NAME[optimal_column]  # This gives you the best location from the dairy farmers' view
+########## BEST FARMER LOCATION IS ROCKINGHAM
+
+
+# If assuming equal importance for each processor
+D_proc <- diag(rep(1, 3))  # 3 processors, each with weight 1
+# T_proc = duration matrix where processors are source rows, destinations are VA counties
+T_proc <- duration_matrix2
+
+# Multiply: 3x3 * 3x133 = 3x133
+C_proc <- D_proc %*% T_proc
+# Find column with smallest sum (L1 norm)
+best_index_proc <- which.min(colSums(C_proc, na.rm = TRUE))
+
+# Get county index (should match your counties ordering)
+best_index_proc
+destination_counties <- vaco$NAME 
+dest_ids <- coordinates2 %>% distinct(id, lat_y, long_y)
+county_lookup <- bind_cols(id = 1:nrow(vaco), COUNTY = vaco$NAME)
+optimal_county <- county_lookup$COUNTY[27]
+optimal_county
+vaco$NAME[27]  # Should return "Richmond"
+######## FOR PROCESSOR SUGGESTION RICHMOND
+
+# Reload vaco with centroid-compatible shapes
+vaco <- counties(state = 'VA', class = "sf") %>% st_transform(4326)
+
+# Rockingham centroid
+rockingham_coords <- vaco %>% filter(toupper(NAME) == "ROCKINGHAM")
+x1 <- as.numeric(st_coordinates(st_centroid(rockingham_coords))[1])
+y1 <- as.numeric(st_coordinates(st_centroid(rockingham_coords))[2])
+
+# Richmond centroid
+richmond_coords <- vaco %>% filter(GEOID == 51760)
+x2 <- as.numeric(st_coordinates(st_centroid(richmond_coords))[1])
+y2 <- as.numeric(st_coordinates(st_centroid(richmond_coords))[2])
+
+
+# Slope and intercept of the line
+m <- (y2 - y1) / (x2 - x1)
+b <- y1 - m * x1
+
+# Generate interpolation points
+weights <- 0:100
+interpolation_df <- data.frame(
+  weight = weights,
+  w = weights / 100
+) %>%
+  mutate(
+    x = w * x1 + (1 - w) * x2,
+    y = m * x + b
+  )
+
+
+# Convert to sf object
+interpolation_sf <- st_as_sf(interpolation_df, coords = c("x", "y"), crs = 4326)
+
+# Load county shapes
+vaco <- counties(state = 'VA', cb = TRUE, class = "sf") %>%
+  st_transform(4326)
+
+# Define your target counties as uppercase
+target_counties <- toupper(c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM", 
+                             "PAGE", "FREDERICK", "CLARKE", "ROCKBRIDGE",
+                             "PITTSYLVANIA", "FRANKLIN"))
+
+
+# Use only target counties for matching
+target_sf <- vaco %>% filter(NAME %in% target_counties)
+
+# Get nearest county for each point (even if it's not strictly "within")
+nearest <- st_nearest_feature(interpolation_sf, vaco)
+
+# Assign county names
+interpolation_sf$county <- vaco$NAME[nearest]
+
+
+# Drop geometry and save to CSV
+interpolation_result <- interpolation_sf %>%
+  st_drop_geometry()
+
+write.csv(interpolation_result, "interpolated_optimal_counties.csv", row.names = FALSE)
+
+# Read the CSV file for further use
+interpolated_df <- read.csv("interpolated_optimal_counties.csv")
+
+# In your server logic (assuming Shiny)
+observeEvent(input$weight_slider, {
+  selected_county <- interpolated_df %>%
+    filter(weight == input$weight_slider) %>%
+    pull(county)
+  output$optimal_county_text <- renderText({
+    paste("Suggested county based on your preferences:", selected_county)
+  })
+})
