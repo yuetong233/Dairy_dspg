@@ -26,7 +26,7 @@ va_counties <- counties(state = "VA", cb = TRUE, class = "sf") %>%
 va_counties$NAME <- toupper(va_counties$NAME)
 
 # Define target counties (uppercase)
-target_counties <- toupper(c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM", 
+target_counties <- toupper(c("SHENANDOAH", "ROCKINGHAM", "AUGUSTA", "WARREN", 
                              "PAGE", "FREDERICK", "CLARKE", "ROCKBRIDGE",
                              "PITTSYLVANIA", "FRANKLIN"))
 
@@ -158,6 +158,65 @@ ui <- fluidPage(
         }
       "))
              ),
+             tabPanel("🧡🦃WELCOME🥛🗺 ",
+                      tabsetPanel(id = "welcome_tabs", selected = "Project Overview",
+                                  
+                                  tabPanel("Project Overview",
+                                           fluidRow(
+                                             column(12,
+                                                    tags$div(
+                                                      style = "padding: 30px; background-color: #fff3e6; border-radius: 15px; box-shadow: 0px 0px 12px rgba(0,0,0,0.1);",
+                                                      tags$h1("Welcome to the Virginia Dairy Plant Optimization Dashboard! 🐄"),
+                                                      tags$p("This dashboard is a one-stop tool to explore and analyze the suitability of different counties in Virginia for dairy plant placement."),
+                                                      tags$h4("📌 What's inside:"),
+                                                      tags$ul(
+                                                        tags$li("Milk production and cow productivity analysis"),
+                                                        tags$li("Transportation and road accessibility modeling"),
+                                                        tags$li("Data-driven recommendations for dairy plant siting"),
+                                                        tags$li("User-adjustable preferences for economic vs. farm-based priorities")
+                                                      ),
+                                                      tags$p("Built with love by two DSPG students who drank way too much chocolate milk while designing this."),
+                                                      tags$hr(),
+                                                      tags$blockquote("“Good data leads to good decisions. Great dashboards make them accessible.”")
+                                                    )
+                                             )
+                                           )
+                                  ),
+                                  
+                                  tabPanel("Data Sources",
+                                           fluidRow(
+                                             column(12,
+                                                    tags$h3("📊 Variables, Sources & Formats"),
+                                                    DT::dataTableOutput("data_sources_table")
+                                             )
+                                           )
+                                  ),
+                                  
+                                  tabPanel("About Us",
+                                           fluidRow(
+                                             column(6,
+                                                    tags$div(
+                                                      style = "padding: 20px; background-color: #fdf3e7; border-radius: 12px;",
+                                                      tags$h3("👩 Irmak Ocel"),
+                                                      tags$p("A Statistics & Public Health major from Virginia Tech. Passionate about making data make sense, especially in the public health & agriculture space."),
+                                                      tags$p("Former intern at Amazon, dashboard whisperer, and milk efficiency queen 🐄📈")
+                                                    )
+                                             ),
+                                             column(6,
+                                                    tags$div(
+                                                      style = "padding: 20px; background-color: #fdf3e7; border-radius: 12px;",
+                                                      tags$h3("🧑‍💻 [Your Partner's Name]"),
+                                                      tags$p("A [Major] student with a love for geospatial analysis, clean maps, and transportation modeling."),
+                                                      tags$p("Known for: driving 3,000 virtual miles across Virginia to model cost paths.")
+                                                    )
+                                             )
+                                           )
+                                  )
+                                  
+                      )
+             ),
+             
+             
              
              tabPanel("Map View 🗺️",
                       tabsetPanel(
@@ -315,6 +374,8 @@ ui <- fluidPage(
              )
   )
 )
+  
+
 
       
        
@@ -934,9 +995,26 @@ server <- function(input, output, session) {
         composite_index = round(0.4 * efficiency_score + 0.3 * inventory_score + 0.3 * score, 1)
       )
   })
-  
-  
-  
+  output$data_sources_table <- DT::renderDataTable({
+    data.frame(
+      Variable = c("Milk Production", "Dairy Cow Inventory", "Road Network", "Transportation Costs", "County Boundaries"),
+      Description = c(
+        "Monthly milk output by county",
+        "Annual dairy cow headcount by county",
+        "Primary & secondary road data for accessibility scoring",
+        "Drive-time and cost estimates to processors",
+        "Geospatial boundaries of VA counties"
+      ),
+      Source = c(
+        "NASS QuickStats API",
+        "NASS QuickStats API",
+        "U.S. Census TIGER/Line",
+        "Processed from OSRM + custom CSV",
+        "TIGER/Line shapefiles"
+      ),
+      Format = c("API", "API", "Shapefile", "CSV", "Shapefile")
+    )
+  })
   
   output$efficiency_summary_table <- DT::renderDataTable({
     df <- combined_data() %>% filter(COUNTY %in% input$efficiency_counties, !is.na(COWS), !is.na(MILK_LBS))
