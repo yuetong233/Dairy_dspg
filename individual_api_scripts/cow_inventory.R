@@ -21,9 +21,6 @@ va_focus <- va_dairy[toupper(va_dairy$county) %in% target_counties, ]
 View(va_focus)
 write.csv(as.data.frame(va_focus), "va_dairy_focus.csv", row.names = FALSE)
 
-
-
-
 library(sf)
 library(tmap)
 
