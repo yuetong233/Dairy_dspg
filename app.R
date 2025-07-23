@@ -54,7 +54,6 @@ milk_data <- read_excel("VA_Milk_Production.xlsx") %>%
     MONTH_NUM = month(DATE)
   )
 
-
 # Load roads shapefile and process for accessibility scores
 roads_path <- "tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
 roads <- sf::st_read(roads_path, quiet = TRUE)
@@ -93,7 +92,6 @@ print(merged_accessibility)
 
 
 # Update color palette for map
-
 pal_access <- colorNumeric(palette = "Blues", domain = merged_accessibility$score, na.color = "#f0f0f0")
 
 # Function to fetch dairy cows data for last 10 years from API
@@ -331,12 +329,9 @@ ui <- fluidPage(
   )
 )
 
-
-
 # Server logic for VA Dairy Dashboard
 server <- function(input, output, session) {
   print("Server started")
-  
   
   # Reactive years for fetching
   years_to_fetch <- reactive({
@@ -376,10 +371,6 @@ server <- function(input, output, session) {
       filter(!is.na(COWS))
   })
   
-  
-  
-  # Monthly summary
-  
   # Monthly efficiency reactive (single clean version)
   monthly_efficiency <- reactive({
     req(dairy_cows_va())
@@ -391,9 +382,6 @@ server <- function(input, output, session) {
         efficiency_lbs_per_cow = `MILK (lbs)` / COWS / 30,
         MONTH_NAME = month(DATE, label = TRUE, abbr = FALSE)
       )
-    
-    
-    
   })
   
   # Monthly efficiency summary reactive
@@ -409,9 +397,6 @@ server <- function(input, output, session) {
         .groups = "drop"
       )
   })
-  
-  
-  
   
   # Join milk + cow inventory for yearly composite calcs
   combined_data <- reactive({
@@ -446,9 +431,6 @@ server <- function(input, output, session) {
       )) %>%
       select(COUNTY, YEAR, MILK_LBS, COWS, data_flag)
   })
-  
-  
-  
   
   # Composite suitability calculation
   composite_data <- reactive({
@@ -485,11 +467,9 @@ server <- function(input, output, session) {
       )
   })
   
-  
   merged_suitability <- reactive({
     target_va_counties %>% left_join(composite_data(), by = "NAME")
   })
-  
   
   # Suitability Score Map
   output$suitability_map <- renderLeaflet({
@@ -571,7 +551,6 @@ server <- function(input, output, session) {
       }
       }
   })
-  
   
   calc_transport_cost_full <- function(miles, mpg, fuel_price, truck_capacity, daily_production, operating_days) {
     gallons_needed <- miles / mpg
@@ -659,11 +638,6 @@ server <- function(input, output, session) {
     }
   })
   
-  
-  
-  
-  
-  
   # County comparison table
   output$county_comparison_table <- renderTable({
     req(input$compare_counties)
@@ -694,7 +668,6 @@ server <- function(input, output, session) {
   
   output$line_plot <- renderPlot({
     req(input$selected_county, input$selected_year)
-    
     filtered_data <- milk_data %>%
       filter(COUNTY == input$selected_county, YEAR == input$selected_year) %>%
       mutate(MONTH_NAME = factor(month.name[month(DATE)], levels = month.name, ordered = TRUE)) %>%
@@ -717,7 +690,6 @@ server <- function(input, output, session) {
       )
   })
   
-  
   output$milk_table <- DT::renderDataTable({
     req(input$milk_county)
     milk_data %>% filter(COUNTY == input$milk_county)
@@ -736,7 +708,6 @@ server <- function(input, output, session) {
       milk_2011 <- df$avg_milk[df$YEAR == 2011]
       milk_2025 <- df$avg_milk[df$YEAR == 2025]
       change <- (milk_2025 - milk_2011) / milk_2011 * 100
-      
       avg_text <- paste0(
         "<b>", input$milk_county, "</b><br>",
         "Average in 2011: ", scales::comma(round(milk_2011)), " lbs<br>",
@@ -748,8 +719,6 @@ server <- function(input, output, session) {
     
     HTML(paste0("<h3 style='margin-top:0;'>Average Monthly Milk Output</h3>", avg_text))
   })
-  
-  
   
   output$roads_map <- renderLeaflet({
     leaflet(merged_accessibility) %>%
@@ -853,8 +822,6 @@ server <- function(input, output, session) {
     }
   })
   
-  
-  
   # Graph 2: Cost per Gallon Heatmap
   output$cost_per_gallon_tile <- renderPlot({
     req(transport_df)
@@ -876,10 +843,8 @@ server <- function(input, output, session) {
   
   output$gallons_needed_bubble <- renderPlot({
     req(transport_df)
-    
     gallons_df <- transport_df %>%
       select(Location, Destination, Gallons_Needed)
-    
     ggplot(gallons_df, aes(x = Location, y = Destination, size = Gallons_Needed, color = Destination)) +
       geom_point(alpha = 0.7) +
       scale_size_continuous(range = c(3,10)) +
@@ -900,9 +865,6 @@ server <- function(input, output, session) {
       Phone = rep("804.545.5774", 3)
     )
   })
-  
-  
-  
   
   composite_data <- reactive({
     req(is.data.frame(combined_data()), is.data.frame(accessibility_scores_df))
@@ -937,9 +899,6 @@ server <- function(input, output, session) {
         composite_index = round(0.4 * efficiency_score + 0.3 * inventory_score + 0.3 * score, 1)
       )
   })
-  
-  
-  
   
   output$efficiency_summary_table <- DT::renderDataTable({
     df <- combined_data() %>% filter(COUNTY %in% input$efficiency_counties, !is.na(COWS), !is.na(MILK_LBS))
