@@ -13,6 +13,16 @@ library(bslib)
 library(ggimage)
 library(tidyr)
 library(purrr)
+#TODO:
+# user_city goes nowhere - no operations are done on it, it's just there
+# remove clarke county from milk efficiency bar plot
+# fix formatting issues (underscores especially) everywhere
+# make monthly milk production a line chart, not a scatterplot. it's a time series
+# look into NAs for warren county in side-by-side comparison
+  # also, why not just put ALL the counties in the table...?
+# fix draggable display tab to not be in front of all the other tabs
+# economic preference map tab has no map?
+# add thi stuff
 
 # Define target counties
 target_counties <- c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM", 
@@ -563,12 +573,6 @@ server <- function(input, output, session) {
   })
   
   
-  
-  
-  
-  
-  
-  
   calc_transport_cost_full <- function(miles, mpg, fuel_price, truck_capacity, daily_production, operating_days) {
     gallons_needed <- miles / mpg
     cost_per_trip <- gallons_needed * fuel_price
@@ -621,7 +625,6 @@ server <- function(input, output, session) {
         theme_minimal()
     })
   })
-  
   
   # Fix Top 5 counties table
   output$top5_table <- renderTable({
