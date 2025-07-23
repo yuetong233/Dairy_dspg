@@ -31,14 +31,8 @@ library(stringr)
   # changing weights doesn't change the graph?
 
 #2. compare counties
-  #remove number months
-  # rename columns for readability
-  # add break after table
 
 #3. milk production
-  # make county name in title lowercase
-  # remove spaces between year in title
-  # change scatterplot to line graph
   # fix help text
 
 #4. milk production table
@@ -247,7 +241,7 @@ ui <- fluidPage(
                           h4("Side-by-Side Comparison Table"),
                           tableOutput("county_comparison_table"),
                           br(),
-                          helpText("hi"),
+                          #helpText("hi"),
                           br()
                         )
              ),
@@ -694,22 +688,23 @@ server <- function(input, output, session) {
   
   # County comparison table
   output$county_comparison_table <- renderTable({
-    #req(input$compare_counties)
     composite_data() %>%
-      #filter(NAME %in% input$compare_counties) %>%
       left_join(
         monthly_efficiency_summary() %>%
           rename(Best_Month = best_month, Best_Month_Efficiency = best_month_eff),
         by = c("NAME" = "COUNTY")
       ) %>%
+      mutate(NAME = str_to_title(NAME)) %>%
+      mutate(named_month = month.name[Best_Month]) %>%
+      arrange(desc(composite_index)) %>%
       transmute(
         County = NAME,
         `Composite Score` = composite_index,
-        `Avg Monthly Efficiency (lbs/cow)` = round(milk_efficiency, 1),
-        `Total Cow Inventory` = formatC(total_cows, format = "d", big.mark = ","),
         `Accessibility Score` = round(score, 1),
-        `Best Month` = Best_Month,
-        `Efficiency in Best Month` = Best_Month_Efficiency
+        `Average Productivity (lbs/cow/month)` = round(milk_efficiency, 1),
+        `Number of Cows` = formatC(total_cows, format = "d", big.mark = ","),
+        `Best Month` = named_month,
+        `Productivity in Best Month` = Best_Month_Efficiency
       )
   })
   
@@ -719,21 +714,24 @@ server <- function(input, output, session) {
                 selected = head(sort(unique(milk_data$COUNTY[milk_data$COUNTY %in% target_counties])), 3),
                 multiple = TRUE)
   })
-  
+
   output$line_plot <- renderPlot({
     req(input$selected_county, input$selected_year)
     filtered_data <- milk_data %>%
       filter(COUNTY == input$selected_county, YEAR == input$selected_year) %>%
-      mutate(MONTH_NAME = factor(month.name[month(DATE)], levels = month.name, ordered = TRUE)) %>%
-      group_by(MONTH_NAME) %>%
+      mutate(MONTH = as.Date(DATE)) %>%
+      group_by(MONTH) %>%
       summarise(`MILK (lbs)` = sum(`MILK (lbs)`, na.rm = TRUE), .groups = "drop")
-    
-    ggplot(filtered_data, aes(x = MONTH_NAME, y = `MILK (lbs)`)) +
+    ggplot(filtered_data, aes(x = MONTH, y = `MILK (lbs)`)) +
       geom_line(color = "maroon2", size = 1.2) +
       geom_point(color = "dodgerblue1", size = 2) +
+      scale_x_date(
+        date_breaks = "1 month",
+        date_labels = "%B" 
+      ) +
       scale_y_continuous(labels = scales::comma) +
       labs(
-        title = paste("Monthly Milk Production in", input$selected_county, "(", input$selected_year, ")"),
+        title = paste("Monthly Raw Milk Production in", str_to_title(input$selected_county), "in", input$selected_year),
         x = "Month",
         y = "Milk Output (lbs)"
       ) +
@@ -850,8 +848,8 @@ server <- function(input, output, session) {
   })
   # Graph 1: Annual Transportation Cost Faceted Bar Plot
   output$annual_cost_bar <- renderPlot({
-    print("Rendering annual_cost_bar")   
-    print(head(transport_df))           
+    #print("Rendering annual_cost_bar")   
+    #print(head(transport_df))           
     
     req(transport_df)
     
@@ -859,7 +857,7 @@ server <- function(input, output, session) {
       select(Location, Destination, Dollar_Per_Gallon_Mid_Size) %>%
       filter(!is.na(Dollar_Per_Gallon_Mid_Size))
     
-    print(nrow(annual_df))               # New diagnostic
+    #print(nrow(annual_df))               # New diagnostic
     
     if(nrow(annual_df) == 0){
       plot.new()
@@ -922,7 +920,6 @@ server <- function(input, output, session) {
   
   composite_data <- reactive({
     req(is.data.frame(combined_data()), is.data.frame(accessibility_scores_df))
-    
     efficiency_df <- combined_data() %>%
       filter(YEAR == 2024, !is.na(MILK_LBS), !is.na(COWS), COWS > 0) %>%
       mutate(
