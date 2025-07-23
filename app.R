@@ -13,6 +13,7 @@ library(bslib)
 library(ggimage)
 library(tidyr)
 library(purrr)
+library(stringr)
 #TODO:
 # user_city goes nowhere - no operations are done on it, it's just there
 # remove clarke county from milk efficiency bar plot
@@ -26,14 +27,11 @@ library(purrr)
 
 #by tab:
 #1. map view
-  # change draggable rectangle default position
-  # fix na and new line in composite score legend
-  # change color in na counties to look better
-  # add break after map
+  # fix na for hover thing
+  # changing weights doesn't change the graph?
 
 #2. compare counties
-  # remove selector
-  # include all counties in table
+  #remove number months
   # rename columns for readability
   # add break after table
 
@@ -214,22 +212,24 @@ ui <- fluidPage(
              tabPanel("Map View 🗺️",
                       tabsetPanel(
                         tabPanel("Suitability Score Map",
-                                 leafletOutput("suitability_map", height = "700px")
+                                 leafletOutput("suitability_map", height = "700px"),
+                                 br(), 
+                                 br()
                         ),
                         tabPanel("Economic Preference Map",
                                  uiOutput("optimal_county_text"),
-                                 leafletOutput("interpolation_map", height = "700px")
+                                 leafletOutput("interpolation_map", height = "700px"),
+                                 br()
                         )
                         
                       ),
                       absolutePanel(
-                        top = 80, left = 20, width = 320, draggable = TRUE,
+                        top = 590, left = 600, width = 250, draggable = TRUE,
                         style = "background-color: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
+                        tags$h3("🏁 Choose Your Priorities", style = "color: #5a3e1b; font-weight: bold; margin-top: 0;"),
                         
-                        tags$h3("🏁 Choose Your Dairy Plant Priorities", style = "color: #5a3e1b; font-weight: bold; margin-top: 0;"),
-                        
-                        sliderInput("weight_slider", "Preference for Farmers (%)", min = 0, max = 100, value = 50, step = 1),
-                        tags$small("Slide to balance the needs of farmers vs. processors. 0 = processors only, 100 = farmers only.", style = "color: #555;"),
+                        sliderInput("weight_slider", "Weight Preferences", min = 0, max = 100, value = 50, step = 1),
+                        helpText(HTML("Use the slider to balance the priorities of farmers vs. investors.<br>0 = entirely investor-focused.<br>100 = entirely farmer-focused.")),
                         
                         tags$hr(),
                         
@@ -242,20 +242,14 @@ ui <- fluidPage(
                       )
              ),
              
-             
-             
              tabPanel("Compare Counties 📊",
-                      sidebarLayout(
-                        sidebarPanel(
-                          h4("Select Counties to Compare"),
-                          selectInput("compare_counties", "Counties:", choices = target_counties, selected = head(target_counties, 2), multiple = TRUE),
-                          helpText("You can select up to 3 counties.")
-                        ),
-                        mainPanel(
+                      absolutePanel(
                           h4("Side-by-Side Comparison Table"),
-                          tableOutput("county_comparison_table")
+                          tableOutput("county_comparison_table"),
+                          br(),
+                          helpText("hi"),
+                          br()
                         )
-                      )
              ),
              tabPanel("Milk Production 🥛",
                       sidebarLayout(
@@ -526,13 +520,15 @@ server <- function(input, output, session) {
   output$suitability_map <- renderLeaflet({
     data <- merged_suitability()
     highlighted <- selected_county_df()$county
-    pal_suit <- colorNumeric(palette = "YlOrRd", domain = data$composite_index)
+    pal_suit <- colorNumeric(palette = "YlOrRd", 
+                             domain = data$composite_index,
+                             na.color = "transparent")
     
     leaflet(data) %>%
       addProviderTiles("CartoDB.Positron") %>%
       addPolygons(
-        fillColor = ~pal_suit(composite_index),
-        color = ~ifelse(NAME == highlighted, "darkblue", "maroon2"),
+        fillColor = ~ifelse(is.na(composite_index), "#bbbbbb", pal_suit(composite_index)),
+        color = "#888888",
         weight = ~ifelse(NAME == highlighted, 3, 1),
         fillOpacity = 0.7,
         label = ~lapply(paste0(
@@ -543,7 +539,10 @@ server <- function(input, output, session) {
           "Accessibility Score: ", round(score, 1)
         ), htmltools::HTML)
       ) %>%
-      addLegend(pal = pal_suit, values = data$composite_index, title = "Composite Score")
+      addLegend(pal = pal_suit, 
+                values = data$composite_index, 
+                title = "Composite<br>Score",
+                position="topleft")
   })
   
   output$interpolation_map <- renderLeaflet({
@@ -661,7 +660,11 @@ server <- function(input, output, session) {
     merged_suitability() %>%
       st_drop_geometry() %>%
       arrange(desc(composite_index)) %>%
-      select(NAME, composite_index) %>%
+      mutate(title_case = str_to_title(NAME)) %>%
+      mutate(composite_index = format(round(composite_index, 1))) %>%
+      select(title_case, composite_index) %>%
+      rename("Name" = "title_case",
+             "Composite Index" = "composite_index") %>%
       slice_head(n = 5)
   })
   
@@ -691,9 +694,9 @@ server <- function(input, output, session) {
   
   # County comparison table
   output$county_comparison_table <- renderTable({
-    req(input$compare_counties)
+    #req(input$compare_counties)
     composite_data() %>%
-      filter(NAME %in% input$compare_counties) %>%
+      #filter(NAME %in% input$compare_counties) %>%
       left_join(
         monthly_efficiency_summary() %>%
           rename(Best_Month = best_month, Best_Month_Efficiency = best_month_eff),
