@@ -14,33 +14,31 @@ library(ggimage)
 library(tidyr)
 library(purrr)
 
-# Authenticate with NASS API
-nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
-transport_df <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/miles_processed.xlsx")
-interpolated_df <- read.csv("interpolated_optimal_counties.csv")
-
+# Define target counties
+target_counties <- c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM", 
+                     "PAGE", "FREDERICK", "CLARKE", "ROCKBRIDGE",
+                     "PITTSYLVANIA", "FRANKLIN")
 
 # Load VA counties spatial data
 va_counties <- counties(state = "VA", cb = TRUE, class = "sf") %>%
   st_transform(4326)
 va_counties$NAME <- toupper(va_counties$NAME)
-
-# Define target counties (uppercase)
-target_counties <- toupper(c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM", 
-                             "PAGE", "FREDERICK", "CLARKE", "ROCKBRIDGE",
-                             "PITTSYLVANIA", "FRANKLIN"))
-
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
 
+# Authenticate with NASS API
+nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
+transport_df <- read_excel("miles_processed.xlsx")
+interpolated_df <- read.csv("interpolated_optimal_counties.csv")
+
 # Milk Prod data 2011-2025
-milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/VA_Milk_Production.xlsx") %>%
+milk_data <- read_excel("VA_Milk_Production.xlsx") %>%
   rename(
     `MILK (lbs)` = POUNDS_OF_MILK,
     PRODUCERS = NUMBER_OF_PRODUCERS
   ) %>%
   mutate(
     COUNTY = toupper(COUNTY),
-    DATE = parse_date_time(paste(YEAR, MONTH, "1"), orders = "Y b d"),  # lowercase 'b' for abbreviated month
+    DATE = parse_date_time(paste(YEAR, MONTH, "1"), orders = "Y b d"),
     YEAR = as.numeric(YEAR),
     MONTH_NAME = factor(month.name[month(DATE)], levels = month.name, ordered = TRUE),
     MONTH_NUM = month(DATE)
@@ -48,7 +46,7 @@ milk_data <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/VA_Milk_Producti
 
 
 # Load roads shapefile and process for accessibility scores
-roads_path <- "C:/Users/irmo2303/Downloads/DSPG_foler/tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
+roads_path <- "tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
 roads <- sf::st_read(roads_path, quiet = TRUE)
 primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S")) %>% st_transform(4326)
 # Join road segments with counties
@@ -59,7 +57,7 @@ roads_with_county$length_m <- as.numeric(st_length(roads_with_county))
 road_lengths <- roads_with_county %>%
   group_by(NAME) %>%
   summarise(total_road_length_km = sum(length_m, na.rm = TRUE) / 1000)
-
+print(road_lengths)
 # Calculate area (km²) of each county
 target_va_counties$area_km2 <- as.numeric(st_area(target_va_counties) / 1e6)
 
@@ -68,6 +66,9 @@ accessibility_scores <- road_lengths %>%
   left_join(st_drop_geometry(target_va_counties)[, c("NAME", "area_km2")], by = "NAME") %>%
   mutate(
     road_density = total_road_length_km / area_km2,
+  ) %>% 
+  arrange(desc(road_density)) %>% slice(-1) %>%
+  mutate(
     score = rescale(road_density, to = c(0, 100))
   )
 
@@ -75,11 +76,10 @@ accessibility_scores_df <- accessibility_scores %>% st_set_geometry(NULL)
 accessibility_scores_df <- accessibility_scores_df %>%
   group_by(NAME) %>%
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
-
-
+print(accessibility_scores_df)
 merged_accessibility <- target_va_counties %>%
   left_join(accessibility_scores_df, by = "NAME")
-
+print(merged_accessibility)
 
 
 # Update color palette for map
