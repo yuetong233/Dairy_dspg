@@ -30,14 +30,9 @@ library(stringr)
   # fix na for hover thing
   # changing weights doesn't change the graph?
 
-#2. compare counties
-
 #3. milk production
   # fix help text
-
-#4. milk production table
-  # remove repetitive columns
-  # fix column names
+  # create error message for missing data (specifically Clarke)
 
 #5. roads and accessibility
   # change colors to look better
@@ -249,13 +244,16 @@ ui <- fluidPage(
                       sidebarLayout(
                         sidebarPanel(
                           h4("Select County and Year 🐄📆"),
-                          selectInput("selected_county", "Choose a County:", choices = sort(target_counties), selected = "AUGUSTA"),
+                          selectInput("selected_county", "Choose a County:", choices = sort(str_to_title(target_counties)), selected = "Augusta"),
                           selectInput("selected_year", "Choose a Year:", choices = sort(unique(milk_data$YEAR), decreasing = TRUE), selected = 2024),
                           helpText("Shows total milk production by month for the selected county and year.")
                         ),
                         mainPanel(
-                          plotOutput("line_plot", height = "600px")
-                        )
+                          plotOutput("line_plot", height = "600px"),
+                          br(),
+                          br()
+                        ),
+                        
                       )
              ),
              
@@ -264,7 +262,7 @@ ui <- fluidPage(
              tabPanel("Milk Production Table 🧾",
                       sidebarLayout(
                         sidebarPanel(
-                          selectInput("milk_county", "County:", choices = sort(target_counties))
+                          selectInput("milk_county", "County:", choices = sort(str_to_title(target_counties)))
                         ),
                         mainPanel(
                           htmlOutput("milk_avg"),
@@ -718,6 +716,7 @@ server <- function(input, output, session) {
   output$line_plot <- renderPlot({
     req(input$selected_county, input$selected_year)
     filtered_data <- milk_data %>%
+      mutate(COUNTY = str_to_title(COUNTY)) %>%
       filter(COUNTY == input$selected_county, YEAR == input$selected_year) %>%
       mutate(MONTH = as.Date(DATE)) %>%
       group_by(MONTH) %>%
@@ -742,14 +741,22 @@ server <- function(input, output, session) {
       )
   })
   
-  output$milk_table <- DT::renderDataTable({
+  output$milk_table <- renderDT({
     req(input$milk_county)
-    milk_data %>% filter(COUNTY == input$milk_county)
+    milk_data_filtered <- milk_data %>% 
+      filter(str_to_title(COUNTY) == input$milk_county) %>%
+      arrange(desc(DATE)) %>%
+      mutate(DATE = format(DATE, "%B %Y")) %>%
+      mutate(`MILK (lbs)` = scales::comma(`MILK (lbs)`)) %>%
+      select(DATE, `MILK (lbs)`, PRODUCERS)
+    datatable(milk_data_filtered,
+    options = list(pageLength = 12, ordering=FALSE))
+    
   })
   
   output$milk_avg <- renderUI({
     df <- milk_data %>%
-      filter(COUNTY == input$milk_county) %>%
+      filter(str_to_title(COUNTY) == input$milk_county) %>%
       group_by(YEAR) %>%
       summarise(avg_milk = mean(`MILK (lbs)`, na.rm = TRUE), .groups = "drop") %>%
       filter(YEAR %in% c(2011, 2025))
@@ -761,7 +768,6 @@ server <- function(input, output, session) {
       milk_2025 <- df$avg_milk[df$YEAR == 2025]
       change <- (milk_2025 - milk_2011) / milk_2011 * 100
       avg_text <- paste0(
-        "<b>", input$milk_county, "</b><br>",
         "Average in 2011: ", scales::comma(round(milk_2011)), " lbs<br>",
         "Average in 2025: ", scales::comma(round(milk_2025)), " lbs<br>",
         ifelse(change >= 0, "📈 ", "📉 "),
@@ -769,7 +775,7 @@ server <- function(input, output, session) {
       )
     }
     
-    HTML(paste0("<h3 style='margin-top:0;'>Average Monthly Milk Output</h3>", avg_text))
+    HTML(paste0("<h3 style='margin-top:0;'>Average Raw Milk Production in ", input$milk_county, "</h3>", avg_text))
   })
   
   output$roads_map <- renderLeaflet({
