@@ -24,6 +24,57 @@ library(purrr)
 # economic preference map tab has no map?
 # add thi stuff
 
+#by tab:
+#1. map view
+  # change draggable rectangle default position
+  # fix na and new line in composite score legend
+  # change color in na counties to look better
+  # add break after map
+
+#2. compare counties
+  # remove selector
+  # include all counties in table
+  # rename columns for readability
+  # add break after table
+
+#3. milk production
+  # make county name in title lowercase
+  # remove spaces between year in title
+  # change scatterplot to line graph
+  # fix help text
+
+#4. milk production table
+  # remove repetitive columns
+  # fix column names
+
+#5. roads and accessibility
+  # change colors to look better
+  # zoom in map for default
+  # add breaks to legend title
+  # add breaks between and after graphs
+
+#6. transportation costs
+  # make explore lots button go somewhere
+  # allow city and county names with autofill
+  # auto-calculate distances once city name is entered
+  # fix column names in table
+
+#7. 
+  # add title to table with county name
+  # remove county name from table column
+  # change and fix help text
+  # breaks after table and graph
+  # change county name to be lowercase in graph/table title
+
+#8. milk efficiency
+  # remove clarke from default graph
+  # change slider so it selects one year
+  # fix help text for readability
+  # change column names for correlation summary
+  # change column names for quality check
+  # change x-label text angles on line graph
+  # change legend title and counties from all caps
+
 # Define target counties
 target_counties <- c("SHENANDOAH", "WARREN", "AUGUSTA", "ROCKINGHAM", 
                      "PAGE", "FREDERICK", "CLARKE", "ROCKBRIDGE",
