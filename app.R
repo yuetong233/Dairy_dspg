@@ -38,9 +38,7 @@ library(stringr)
 
 #4. roads and accessibility
   # change colors to look better
-  # zoom in map for default
-  # add breaks to legend title
-  # add breaks between and after graphs
+  # change map color from Blues
 
 #5. transportation costs
   # make explore lots button go somewhere
@@ -368,6 +366,7 @@ ui <- fluidPage(
                         ),
                         mainPanel(
                           leafletOutput("roads_map", height = "500px"),
+                          br(),
                           plotOutput("accessibility_bar", height = "300px"),
                           hr(),
                           h3("Cost per Gallon by County and Destination"),
@@ -880,6 +879,7 @@ server <- function(input, output, session) {
   
   output$roads_map <- renderLeaflet({
     leaflet(merged_accessibility) %>%
+      setView(lng = -78.5, lat = 38.0, zoom = 7) %>%
       addProviderTiles("CartoDB.Positron") %>%
       addPolygons(
         fillColor = ~pal_access(score),
@@ -888,7 +888,7 @@ server <- function(input, output, session) {
         labelOptions = labelOptions(direction = "auto", style = list("font-weight" = "normal"), textsize = "14px")
       ) %>%
       addPolylines(data = primary_secondary_roads, color = "blue", weight = 2, opacity = 0.6) %>%
-      addLegend(pal = pal_access, values = merged_accessibility$score, title = "Accessibility Score")
+      addLegend(pal = pal_access, values = merged_accessibility$score, title = "Accessibility<br>Score")
   })
   
   output$accessibility_bar <- renderPlot({
