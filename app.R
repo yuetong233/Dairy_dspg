@@ -20,7 +20,7 @@ library(stringr)
 # fix formatting issues (underscores especially) everywhere
 # make monthly milk production a line chart, not a scatterplot. it's a time series
 # look into NAs for warren county in side-by-side comparison
-  # also, why not just put ALL the counties in the table...?
+# also, why not just put ALL the counties in the table...?
 # fix draggable display tab to not be in front of all the other tabs
 # economic preference map tab has no map?
 # add thi stuff
@@ -233,12 +233,12 @@ ui <- fluidPage(
              
              tabPanel("Compare Counties 📊",
                       absolutePanel(
-                          h4("Side-by-Side Comparison Table"),
-                          tableOutput("county_comparison_table"),
-                          br(),
-                          #helpText("hi"),
-                          br()
-                        )
+                        h4("Side-by-Side Comparison Table"),
+                        tableOutput("county_comparison_table"),
+                        br(),
+                        #helpText("hi"),
+                        br()
+                      )
              ),
              tabPanel("Milk Production 🥛",
                       sidebarLayout(
@@ -712,7 +712,7 @@ server <- function(input, output, session) {
                 selected = head(sort(unique(milk_data$COUNTY[milk_data$COUNTY %in% target_counties])), 3),
                 multiple = TRUE)
   })
-
+  
   output$line_plot <- renderPlot({
     req(input$selected_county, input$selected_year)
     filtered_data <- milk_data %>%
@@ -750,7 +750,7 @@ server <- function(input, output, session) {
       mutate(`MILK (lbs)` = scales::comma(`MILK (lbs)`)) %>%
       select(DATE, `MILK (lbs)`, PRODUCERS)
     datatable(milk_data_filtered,
-    options = list(pageLength = 12, ordering=FALSE))
+              options = list(pageLength = 12, ordering=FALSE))
     
   })
   
