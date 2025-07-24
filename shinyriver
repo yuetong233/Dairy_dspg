@@ -13,7 +13,7 @@ library(bslib)
 library(ggimage)
 library(tidyr)
 library(purrr)
-
+library(plotly)
 # Authenticate with NASS API
 nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
 transport_df <- read_excel("C:/Users/irmo2303/Downloads/DSPG_foler/miles_processed.xlsx")
@@ -226,14 +226,18 @@ ui <- fluidPage(
                         tabPanel("Economic Preference Map",
                                  uiOutput("optimal_county_text"),
                                  leafletOutput("interpolation_map", height = "700px")
+                        ),
+                        tabPanel("Compare Counties",
+                                 tableOutput("county_comparison_table")
                         )
+                        
                       ),
                       absolutePanel(
                         top = 80, left = 20, width = 320, draggable = TRUE,
                         style = "background-color: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
                         tags$h3("🏁 Choose Your Dairy Plant Priorities", style = "color: #5a3e1b; font-weight: bold; margin-top: 0;"),
                         sliderInput("weight_slider", "Preference for Farmers (%)", min = 0, max = 100, value = 50, step = 1),
-                        tags$small("Slide to balance the needs of farmers vs. processors. 0 = processors only, 100 = farmers only.", style = "color: #555;"),
+                        tags$small("Slide to balance the needs of farmers vs. processors. 0 = processors suggested, 100 = farmers suggested", style = "color: #555;"),
                         tags$hr(),
                         tags$div(
                           style = "display: flex; align-items: center; justify-content: space-between;",
@@ -244,85 +248,60 @@ ui <- fluidPage(
                       )
              ),
              
-             tabPanel("Compare Counties 📊",
-                      sidebarLayout(
-                        sidebarPanel(
-                          h4("Select Counties to Compare"),
-                          selectInput("compare_counties", "Counties:", choices = target_counties, selected = head(target_counties, 2), multiple = TRUE),
-                          helpText("You can select up to 3 counties.")
+             tabPanel("Cow Productivity 🐄📈",
+                      tabsetPanel(
+                        
+                        tabPanel("Cow Productivity Model",
+                                 fluidRow(
+                                   column(3,
+                                          selectInput("efficiency_county_single", "Select County:",
+                                                      choices = target_counties,
+                                                      selected = target_counties[1])
+                                   ),
+                                   column(9,
+                                          plotlyOutput("efficiency_line_plot", height = "450px")
+                                   )
+                                 ),
+                                 hr(),
+                                 tableOutput("monthly_efficiency_table"),
+                                 hr(),
+                                 tableOutput("efficiency_summary_table")
                         ),
-                        mainPanel(
-                          h4("Side-by-Side Comparison Table"),
-                          tableOutput("county_comparison_table")
+                        
+                        tabPanel("Milk Overview",
+                                 sidebarLayout(
+                                   sidebarPanel(
+                                     selectInput("selected_county", "Select County:", choices = target_counties, selected = target_counties[1]),
+                                     selectInput("selected_year", "Choose a Year:", choices = 2016:2025, selected = 2024)
+                                   ),
+                                   mainPanel(
+                                     plotOutput("line_plot", height = "600px"),
+                                     htmlOutput("milk_avg"),
+                                     DT::dataTableOutput("milk_table"),
+                                     hr()
+                                   )
+                                 )
+                        ),
+                        
+                        tabPanel("Dairy Cow Inventory",
+                                 sidebarLayout(
+                                   sidebarPanel(
+                                     selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1]),
+                                     helpText("Dairy Cow type can differ as organic and non-organic.")
+                                   ),
+                                   mainPanel(
+                                     plotOutput("cow_inventory_plot", height = "400px"),
+                                     DT::dataTableOutput("cow_inventory_table")
+                                   )
+                                 )
                         )
-                      )
+                        
+                      ) 
              ),
              
-             tabPanel("Cow Productivity🥛",
-                      tabsetPanel(id = "milk_tabs", selected = "Cow Productivity Model",
-                                  
-                                  tabPanel("Cow Productivity Model",
-                                           sidebarLayout(
-                                             sidebarPanel(
-                                               h4("Select Counties and Year"),
-                                               uiOutput("efficiency_county_selector"),
-                                               sliderInput("year_efficiency", "Select Year:", min = 2016, max = 2025, value = 2024, step = 1, sep = ""),
-                                               helpText("Shows milk production efficiency:Avg milk produced per dairy cow in a day")
-                                             ),
-                                             mainPanel(
-                                               h3("Milk Productivity (milk lbs/cow/per day)"),
-                                               
-                                               # Explanation at the top
-                                               tags$p("Milk productivity is calculated as the amount of milk (in pounds) produced per cow per day.
-          This metric helps assess how efficiently dairy farms are operating based on available livestock."),
-                                               
-                                               # Directly visible plot
-                                               plotOutput("efficiency_plot", height = "400px"),
-                                               
-                                               # Collapsible panels below
-                                               collapsiblePanel("Correlation Summary: Cows vs. Milk Output",
-                                                                DT::dataTableOutput("efficiency_summary_table")),
-                                               collapsiblePanel("Data Quality Check",
-                                                                DT::dataTableOutput("data_quality_table")),
-                                               collapsiblePanel("Top Counties by Avg Monthly Milk Productivity (2024)",
-                                                                tableOutput("monthly_efficiency_table"))
-                                             )
-                                           )
-                                  ),
-                                             
-
-                                  
-                                  tabPanel("Milk Overview",
-                                           sidebarLayout(
-                                             sidebarPanel(
-                                               selectInput("milk_county", "County:", choices = sort(target_counties)),
-                                               selectInput("selected_county", "Choose a County:", choices = sort(target_counties), selected = "AUGUSTA"),
-                                               selectInput("selected_year", "Choose a Year:", choices = sort(unique(milk_data$YEAR), decreasing = TRUE), selected = 2024)
-                                             ),
-                                             mainPanel(
-                                               htmlOutput("milk_avg"),
-                                               DT::dataTableOutput("milk_table"),
-                                               hr(),
-                                               plotOutput("line_plot", height = "600px")
-                                             )
-                                           )
-                                  ),
-                                  
-                                  tabPanel("Dairy Cow Inventory",
-                                           sidebarLayout(
-                                             sidebarPanel(
-                                               selectInput("cow_county", "Select County:", choices = target_counties, selected = target_counties[1]),
-                                               helpText("Dairy Cow type can differ as organic and non-organic.")
-                                             ),
-                                             mainPanel(
-                                               DT::dataTableOutput("cow_inventory_table"),
-                                               plotOutput("cow_inventory_plot", height = "400px")
-                                             )
-                                           )
-                                  )
-                      )
-             ),  
              
+                                  
+           
              tabPanel("Roads & Accessibility 🚜",
                       sidebarLayout(
                         sidebarPanel(
@@ -341,45 +320,45 @@ ui <- fluidPage(
                       )
              ),
              
-             tabPanel("Transportation Costs 🚚",
-                      sidebarLayout(
-                        sidebarPanel(
-                          h4("Calculate Your Transportation Costs"),
-                          textInput("user_city", "Enter your city or lot name:"),
-                          numericInput("miles_arlington", "Miles to Arlington:", value = NA),
-                          numericInput("miles_richmond", "Miles to Richmond:", value = NA),
-                          numericInput("miles_vabeach", "Miles to VA Beach:", value = NA),
-                          numericInput("mpg", "Truck MPG:", value = 5.5),
-                          numericInput("fuel_price", "Fuel Price ($/gallon):", value = 4.5),
-                          numericInput("truck_capacity", "Truck Capacity (gallons):", value = 6000),
-                          numericInput("daily_production", "Daily Production (gallons):", value = 10000),
-                          numericInput("operating_days", "Operating Days per Year:", value = 340),
-                          actionButton("calc_btn", "💡 Calculate My Transportation Costs!")
-                        ),
-                        mainPanel(
-                          h4("Transportation Cost Metrics"),
-                          tableOutput("transport_metrics"),
-                          hr(),
-                          h4("Annual Transportation Cost Comparison"),
-                          plotOutput("annual_cost_bar"),
-                          hr(),
-                          h3("Not sure but in the market? Take a look at available lots!"),
-                          tableOutput("available_lots_table"),
-                          actionButton("vedp_button", "Explore More Lots on VEDP", 
-                                       onclick = "window.open('https://sites.vedp.org/', '_blank')", 
-                                       class = "btn-primary"),
-                          hr()
-                        )
-                      )
-             )
-  )
+tabPanel("Transportation Costs 🚚",
+         sidebarLayout(
+           sidebarPanel(
+             h4("Calculate Your Transportation Costs"),
+             textInput("user_city", "Enter your city or lot name:"),
+             numericInput("miles_arlington", "Miles to Arlington:", value = NA),
+             numericInput("miles_richmond", "Miles to Richmond:", value = NA),
+             numericInput("miles_vabeach", "Miles to VA Beach:", value = NA),
+             numericInput("mpg", "Truck MPG:", value = 5.5),
+             numericInput("fuel_price", "Fuel Price ($/gallon):", value = 4.5),
+             numericInput("truck_capacity", "Truck Capacity (gallons):", value = 6000),
+             numericInput("daily_production", "Daily Production (gallons):", value = 10000),
+             numericInput("operating_days", "Operating Days per Year:", value = 340),
+             actionButton("calc_btn", "💡 Calculate My Transportation Costs!")
+           ),
+           mainPanel(
+             h4("Transportation Cost Metrics"),
+             tableOutput("transport_metrics"),
+             hr(),
+             h4("Annual Transportation Cost Comparison"),
+             plotOutput("annual_cost_bar"),
+             hr(),
+             h3("Not sure but in the market? Take a look at available lots!"),
+             tableOutput("available_lots_table"),
+             actionButton("vedp_button", "Explore More Lots on VEDP", 
+                          onclick = "window.open('https://sites.vedp.org/', '_blank')", 
+                          class = "btn-primary"),
+             hr()
+           )
+         )
 )
-  
+)
+)
 
 
-      
-       
-  
+
+
+
+
 
 
 
@@ -387,7 +366,7 @@ ui <- fluidPage(
 # Server logic for VA Dairy Dashboard
 server <- function(input, output, session) {
   print("Server started")
-
+  
   
   # Reactive years for fetching
   years_to_fetch <- reactive({
@@ -428,29 +407,27 @@ server <- function(input, output, session) {
   })
   
   
-  
-  # Monthly summary
-  
-  # Monthly efficiency reactive (single clean version)
   monthly_efficiency <- reactive({
     req(dairy_cows_va())
+    
     milk_data %>%
-      filter(COUNTY %in% target_counties, YEAR == input$year_efficiency) %>%
-      left_join(dairy_cows_va() %>% filter(YEAR == input$year_efficiency), by = "COUNTY") %>%
-      filter(!is.na(COWS), COWS > 0) %>%
+      filter(COUNTY %in% target_counties) %>%
+      left_join(dairy_cows_va(), by = c("COUNTY", "YEAR")) %>%
+      filter(!is.na(COWS), COWS > 0, !is.na(`MILK (lbs)`)) %>%
       mutate(
-        efficiency_lbs_per_cow = `MILK (lbs)` / COWS / 30,
-        MONTH_NAME = month(DATE, label = TRUE, abbr = FALSE)
+        efficiency_lbs_per_cow = `MILK (lbs)` / COWS,
+        MONTH_NAME = month.name[month(DATE)],
+        MONTH_NAME = factor(MONTH_NAME, levels = month.name, ordered = TRUE)
       )
-    
-    
-    
   })
+  
+  
   
   # Monthly efficiency summary reactive
   monthly_efficiency_summary <- reactive({
     df <- monthly_efficiency()
     req(df)
+    
     df %>%
       group_by(COUNTY) %>%
       summarise(
@@ -540,7 +517,7 @@ server <- function(input, output, session) {
   merged_suitability <- reactive({
     target_va_counties %>% left_join(composite_data(), by = "NAME")
   })
- 
+  
   
   # Suitability Score Map
   output$suitability_map <- renderLeaflet({
@@ -627,9 +604,9 @@ server <- function(input, output, session) {
   
   
   
-    
   
-                                                               
+  
+  
   calc_transport_cost_full <- function(miles, mpg, fuel_price, truck_capacity, daily_production, operating_days) {
     gallons_needed <- miles / mpg
     cost_per_trip <- gallons_needed * fuel_price
@@ -692,46 +669,43 @@ server <- function(input, output, session) {
       select(NAME, composite_index) %>%
       slice_head(n = 5)
   })
-
+  
   observeEvent(input$weight_slider, {
     print(paste("Slider value:", input$weight_slider))
     selected_county <- interpolated_df %>%
       filter(weight == input$weight_slider) %>%
       pull(county)
   })
-    output$optimal_county_text <- renderUI({
-      selected_row <- selected_county_df()
-      if (is.null(selected_row)) {
-        HTML("<span style='color: red;'>❌ No matching county found for this preference.</span>")
-      } else {
-        pct <- selected_row$weight
-        paste_dairy <- paste0(100 - pct, "% dairy")
-        paste_cost <- paste0(pct, "% cost")
-        county <- selected_row$county
-        
-        HTML(paste0(
-          "<strong style='color: #4CAF50;'>✅ Suggested county:</strong> ",
-          "<span style='font-size: 18px; color: #5a3e1b;'>", county, "</span><br>",
-          "<em>Based on your preference of ", paste_dairy, " and ", paste_cost, ".</em>"
-        ))
-      }
-    })
-    
+  output$optimal_county_text <- renderUI({
+    selected_row <- selected_county_df()
+    if (is.null(selected_row)) {
+      HTML("<span style='color: red;'>❌ No matching county found for this preference.</span>")
+    } else {
+      pct <- selected_row$weight
+      paste_dairy <- paste0(100 - pct, "% dairy")
+      paste_cost <- paste0(pct, "% cost")
+      county <- selected_row$county
+      
+      HTML(paste0(
+        "<strong style='color: #4CAF50;'>✅ Suggested county:</strong> ",
+        "<span style='font-size: 18px; color: #5a3e1b;'>", county, "</span><br>",
+        "<em>Based on your preference of ", paste_dairy, " and ", paste_cost, ".</em>"
+      ))
+    }
+  })
   
   
   
   
   
-  # County comparison table
   output$county_comparison_table <- renderTable({
-    req(input$compare_counties)
     composite_data() %>%
-      filter(NAME %in% input$compare_counties) %>%
       left_join(
         monthly_efficiency_summary() %>%
           rename(Best_Month = best_month, Best_Month_Efficiency = best_month_eff),
         by = c("NAME" = "COUNTY")
       ) %>%
+      distinct(NAME, .keep_all = TRUE) %>%
       transmute(
         County = NAME,
         `Composite Score` = composite_index,
@@ -743,11 +717,33 @@ server <- function(input, output, session) {
       )
   })
   
-  output$county_selector <- renderUI({
-    selectInput("selected_counties", "Counties:",
-                choices = sort(unique(milk_data$COUNTY[milk_data$COUNTY %in% target_counties])),
-                selected = head(sort(unique(milk_data$COUNTY[milk_data$COUNTY %in% target_counties])), 3),
+  
+  output$efficiency_county_selector <- renderUI({
+    selectInput("efficiency_counties", "Counties:",
+                choices = sort(unique(combined_data()$COUNTY)),
+                selected = head(sort(unique(combined_data()$COUNTY)), 3),
                 multiple = TRUE)
+  })
+  output$efficiency_line_plot <- renderPlotly({
+    df <- monthly_efficiency() %>%
+      filter(COUNTY == input$efficiency_county_single) %>%
+      arrange(YEAR, month(DATE)) %>%
+      mutate(
+        time_id = as.Date(DATE),  # X-axis will be chronological date
+        tooltip_text = paste0("Date: ", format(DATE, "%b %Y"),
+                              "<br>Efficiency: ", round(efficiency_lbs_per_cow, 2), " lbs/cow/day")
+      )
+    
+    plot_ly(df, x = ~time_id, y = ~efficiency_lbs_per_cow,
+            type = 'scatter', mode = 'lines+markers',
+            text = ~tooltip_text, hoverinfo = "text",
+            line = list(color = 'darkorange'), marker = list(size = 6)) %>%
+      layout(
+        title = paste("Milk Efficiency in", input$efficiency_county_single, "(2016–2025)"),
+        xaxis = list(title = "Time", type = "date"),
+        yaxis = list(title = "Milk lbs/cow/day"),
+        hovermode = "closest"
+      )
   })
   
   output$line_plot <- renderPlot({
@@ -755,13 +751,16 @@ server <- function(input, output, session) {
     
     filtered_data <- milk_data %>%
       filter(COUNTY == input$selected_county, YEAR == input$selected_year) %>%
-      mutate(MONTH_NAME = factor(month.name[month(DATE)], levels = month.name, ordered = TRUE)) %>%
+      mutate(
+        MONTH_NUM = month(DATE),
+        MONTH_NAME = factor(month.name[MONTH_NUM], levels = month.name, ordered = TRUE)
+      ) %>%
       group_by(MONTH_NAME) %>%
       summarise(`MILK (lbs)` = sum(`MILK (lbs)`, na.rm = TRUE), .groups = "drop")
     
     ggplot(filtered_data, aes(x = MONTH_NAME, y = `MILK (lbs)`)) +
-      geom_line(color = "maroon2", size = 1.2) +
-      geom_point(color = "dodgerblue1", size = 2) +
+      geom_line(aes(group = 1), color = "maroon", size = 1.5) +  # group = 1 fixes the line
+      geom_point(color = "darkred", size = 2) +
       scale_y_continuous(labels = scales::comma) +
       labs(
         title = paste("Monthly Milk Production in", input$selected_county, "(", input$selected_year, ")"),
@@ -777,26 +776,28 @@ server <- function(input, output, session) {
   
   
   output$milk_table <- DT::renderDataTable({
-    req(input$milk_county)
-    milk_data %>% filter(COUNTY == input$milk_county)
+    req(input$selected_county)
+    milk_data %>% filter(COUNTY == input$selected_county)
   })
   
   output$milk_avg <- renderUI({
+    req(input$selected_county)
+    
     df <- milk_data %>%
-      filter(COUNTY == input$milk_county) %>%
+      filter(COUNTY == input$selected_county) %>%
       group_by(YEAR) %>%
       summarise(avg_milk = mean(`MILK (lbs)`, na.rm = TRUE), .groups = "drop") %>%
       filter(YEAR %in% c(2011, 2025))
     
     if (nrow(df) < 2) {
-      avg_text <- paste0("<b>", input$milk_county, "</b><br>Not enough data for 2011 and 2025.")
+      avg_text <- paste0("<b>", input$selected_county, "</b><br>Not enough data for 2011 and 2025.")
     } else {
       milk_2011 <- df$avg_milk[df$YEAR == 2011]
       milk_2025 <- df$avg_milk[df$YEAR == 2025]
       change <- (milk_2025 - milk_2011) / milk_2011 * 100
       
       avg_text <- paste0(
-        "<b>", input$milk_county, "</b><br>",
+        "<b>", input$selected_county, "</b><br>",
         "Average in 2011: ", scales::comma(round(milk_2011)), " lbs<br>",
         "Average in 2025: ", scales::comma(round(milk_2025)), " lbs<br>",
         ifelse(change >= 0, "📈 ", "📉 "),
@@ -806,6 +807,7 @@ server <- function(input, output, session) {
     
     HTML(paste0("<h3 style='margin-top:0;'>Average Monthly Milk Output</h3>", avg_text))
   })
+  
   
   
   
@@ -853,12 +855,6 @@ server <- function(input, output, session) {
         `Best Month` = best_month,
         `Efficiency in Best Month` = best_month_eff
       )
-  })
-  
-  output$data_quality_table <- DT::renderDataTable({
-    combined_data_flagged() %>%
-      filter(data_flag != "✅ OK", YEAR >= 2016) %>%
-      select(COUNTY, YEAR, MILK_LBS, COWS, data_flag)
   })
   
   
@@ -1017,7 +1013,10 @@ server <- function(input, output, session) {
   })
   
   output$efficiency_summary_table <- DT::renderDataTable({
-    df <- combined_data() %>% filter(COUNTY %in% input$efficiency_counties, !is.na(COWS), !is.na(MILK_LBS))
+    req(input$efficiency_counties)
+    df <- combined_data() %>%
+      filter(COUNTY %in% input$efficiency_counties, !is.na(COWS), !is.na(MILK_LBS))
+    if (nrow(df) == 0) return(NULL)
     summary_data <- df %>% group_by(COUNTY) %>% group_map(~ {
       data_sub <- .x
       group_name <- .y$COUNTY
