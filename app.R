@@ -15,6 +15,50 @@ library(tidyr)
 library(purrr)
 library(plotly)
 library(stringr)
+
+#by tab:
+#1. map view
+  # suitability scores
+    # fix na for hover thing
+    # changing weights doesn't change the graph?
+  # economic preference map
+    # there is no map..
+  # compare counties
+    # fotmat na parts better
+    # make absolute panel MAP ONLY
+
+#3. cow productivity
+  # fix help text
+  # create error message for missing data (specifically Clarke)
+
+#5. roads and accessibility
+  # change colors to look better
+  # zoom in map for default
+  # add breaks to legend title
+  # add breaks between and after graphs
+
+#6. transportation costs
+# make explore lots button go somewhere
+# allow city and county names with autofill
+# auto-calculate distances once city name is entered
+# fix column names in table
+
+#7. 
+# add title to table with county name
+# remove county name from table column
+# change and fix help text
+# breaks after table and graph
+# change county name to be lowercase in graph/table title
+
+#8. milk efficiency
+# remove clarke from default graph
+# change slider so it selects one year
+# fix help text for readability
+# change column names for correlation summary
+# change column names for quality check
+# change x-label text angles on line graph
+# change legend title and counties from all caps
+
 # Authenticate with NASS API
 nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
 transport_df <- read_excel("data/miles_processed.xlsx")
