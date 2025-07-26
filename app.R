@@ -84,14 +84,10 @@ accessibility_scores_df <- accessibility_scores_df %>%
   group_by(NAME) %>%
   summarise(across(everything(), ~ mean(.x, na.rm = TRUE)), .groups = "drop")
 
-
 merged_accessibility <- target_va_counties %>%
   left_join(accessibility_scores_df, by = "NAME")
 
-
-
 # Update color palette for map
-
 pal_access <- colorNumeric(palette = "Blues", domain = merged_accessibility$score, na.color = "#f0f0f0")
 
 # Function to fetch dairy cows data for last 10 years from API
@@ -218,11 +214,6 @@ weather_data <- weather_data %>%
     thi_min = temp_f_min - (0.55 - 0.0055 * relative_humidity_2m_min) * (temp_f_min - 58),
     month = format(time, "%Y-%m")
   )
-
-
-
-
-
 
 my_theme <- bs_theme(
   bg = "#fff8f0",
@@ -479,20 +470,17 @@ ui <- fluidPage(
              ),
              tabPanel("Weather Statistics",
                       tabsetPanel(
-                        tabPanel("Map",
+                        tabPanel("Weather Map",
                           sidebarLayout(
                             sidebarPanel(
-                              helpText("Use the slider below to choose a specific date. This will update the map to show weather conditions across Virginia counties for that day. Press the play button to view changes over time."),
-                              
+                              helpText("Use the slider below to choose a day. This will update the map to show weather conditions across Virginia counties for that day."),
                               sliderInput("selected_date",
                                           "Select Date:",
                                           min = min(weather_data$time),
                                           max = max(weather_data$time),
                                           value = min(weather_data$time),
-                                          timeFormat = "%Y-%m-%d",
-                                          step = 1,
-                                          animate = animationOptions(interval = 50, loop = TRUE)),
-                              
+                                          timeFormat = "%Y-%m-%d"
+                                          ),
                               helpText("Choose which weather factor you'd like to view on the map: temperature, humidity, or the Temperature-Humidity Index (THI)."),
                               
                               radioButtons( 
@@ -502,35 +490,59 @@ ui <- fluidPage(
                                   "Temperature (°F)" = 1, 
                                   "Relative Humidity (%)" = 2,
                                   "Temperature-Humidity Index (THI)" = 3)),
-                              
-                              helpText("Use the dropdown to look at a specific county. This will display temperature and humidity trends over the past few days."),
-                              
-                              helpText("Milk production can drop when temperatures go above 70°F or below 40°F, or when humidity rises above 60% or drops below 40%."),
-                              
-                              selectInput("selected_county_thi",
-                                          "Choose a County:",
-                                          choices = sort(unique(weather_data$county)),
-                                          selected = unique(weather_data$county)[1]),
-                              
-                              helpText("In the charts below, the green shaded area shows the optimal range of temperature and humidity for consistent milk production.")
-                            ),
-                            mainPanel(
-                              leafletOutput("temp_map", height = "400px"),
-                              br(),
-                              br(),
-                              plotlyOutput("temp_line_plot", height = "400px"),
-                              br(),
-                              plotlyOutput("hum_line_plot", height = "400px"),
-                              br(),
-                              plotlyOutput("thi_line_plot", height = "400px"),
-                              br(),
-                              uiOutput("table_title"),
-                              DTOutput("data_table"),
-                              br()
-                            )
-                            )
+                              ),
+                          
+                          mainPanel(
+                            br(),
+                            h4("Geographic Weather Trends in Shenandoah Valley"),
+                            leafletOutput("temp_map", height = "400px"),
+                                    br(),
+                                    br())
                           )
                         ),
+                        tabPanel("Line Charts",
+                                 sidebarLayout(
+                                   sidebarPanel(
+                                     helpText("Use the dropdown to look at a specific county. This will display temperature and humidity trends over the past few days, as well as forecasts."),
+                                     selectInput("selected_county_thi",
+                                                 "Choose a County:",
+                                                 choices = sort(unique(weather_data$county)),
+                                                 selected = unique(weather_data$county)[1]),
+                                     helpText("Milk production can drop when temperatures go above 70°F or below 40°F, when humidity rises above 60% or drops below 40%, or when THI goes above 68."),
+                                     
+                                     
+                                     helpText("In these charts, the green shaded area shows the optimal range of temperature, humidity, and THI for consistent milk production."),
+                                     
+                                   ),
+                                   mainPanel(
+                                     br(),
+                                     plotlyOutput("temp_line_plot", height = "400px"),
+                                     br(),
+                                     plotlyOutput("hum_line_plot", height = "400px"),
+                                     br(),
+                                     plotlyOutput("thi_line_plot", height = "400px"),
+                                     br())
+                                 )
+                        ),
+                        
+                        tabPanel("Recent Weather Table",
+                                 sidebarLayout(
+                                   sidebarPanel(
+                                     helpText("Use the dropdown to look at a specific county. This will display temperature and humidity trends over the past few days, as well as forecasts."),
+                                     
+                                     selectInput("selected_county_thi",
+                                                 "Choose a County:",
+                                                 choices = sort(unique(weather_data$county)),
+                                                 selected = unique(weather_data$county)[1]),
+                                   ),
+                                   mainPanel(
+                                     br(),
+                                     uiOutput("table_title"),
+                                     DTOutput("data_table"),
+                                     br())
+                                 )
+                        )
+                        )
                       )
              )
 )
