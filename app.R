@@ -22,42 +22,10 @@ library(dataRetrieval)
 library(taskscheduleR)
 library(readr)
 
-#by tab:
-#1. map view
-  # suitability scores
-    # fix na for hover thing
-    # changing weights doesn't change the graph?
-  # economic preference map
-    # there is no map..
-  # compare counties
-    # format na parts better
-    # make absolute panel MAP ONLY
-
-#3. cow productivity
-  # cow productivity model
-    # warren, page, frederick, clarke all not working
-    # fix help text
-    # create error message for missing data (specifically Clarke)
-  # dairy cow inventory
-    # fix x-axis
-    # fix table and table title for readability
-
-#4. roads and accessibility
-  # change colors to look better
-  # change map color from Blues
-
-#5. transportation costs
-  # make explore lots button go somewhere
-  # allow city and county names with autofill
-  # auto-calculate distances once city name is entered
-  # fix column names in table
-
-
 # Authenticate with NASS API
 nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
 transport_df <- read_excel("data/miles_processed.xlsx")
 interpolated_df <- read.csv("interpolated_optimal_counties.csv")
-
 
 # Load VA counties spatial data
 va_counties <- counties(state = "VA", cb = TRUE, class = "sf") %>%
@@ -68,7 +36,6 @@ va_counties$NAME <- toupper(va_counties$NAME)
 target_counties <- toupper(c("SHENANDOAH", "ROCKINGHAM", "AUGUSTA", "WARREN", 
                              "PAGE", "FREDERICK", "CLARKE", "ROCKBRIDGE",
                              "PITTSYLVANIA", "FRANKLIN"))
-
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
 
 # Milk Prod data 2011-2025
@@ -84,7 +51,6 @@ milk_data <- read_excel("data/VA_Milk_Production.xlsx") %>%
     MONTH_NAME = factor(month.name[month(DATE)], levels = month.name, ordered = TRUE),
     MONTH_NUM = month(DATE)
   )
-
 
 # Load roads shapefile and process for accessibility scores
 roads_path <- "tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
