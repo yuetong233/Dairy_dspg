@@ -24,7 +24,7 @@ library(readr)
 
 # Authenticate with NASS API
 nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
-transport_df <- read_excel("data/miles_processed.xlsx")
+transport_df <- read_excel("miles_processed.xlsx")
 interpolated_df <- read.csv("interpolated_optimal_counties.csv")
 
 # Load VA counties spatial data
@@ -39,7 +39,7 @@ target_counties <- toupper(c("SHENANDOAH", "ROCKINGHAM", "AUGUSTA", "WARREN",
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
 
 # Milk Prod data 2011-2025
-milk_data <- read_excel("data/VA_Milk_Production.xlsx") %>%
+milk_data <- read_excel("VA_Milk_Production.xlsx") %>%
   rename(
     `MILK (lbs)` = POUNDS_OF_MILK,
     PRODUCERS = NUMBER_OF_PRODUCERS
@@ -221,331 +221,465 @@ my_theme <- bs_theme(
   primary = "#8bc34a",
   base_font = font_google("Patrick Hand")
 )
+
+library(shiny)
+library(bslib)
+library(leaflet)
+library(plotly)
+library(DT)
+library(stringr)
+
+# Define your theme (assuming bslib is installed)
+my_theme <- bs_theme(
+  bg = "#fff8f0",
+  fg = "#5a3e1b",
+  primary = "#8bc34a",
+  base_font = font_google("Patrick Hand")
+)
+
+# UI
 ui <- fluidPage(
   theme = my_theme,
-  navbarPage(title = "VA Data Dashboard",
-             
-             tags$head(
-               tags$link(rel = "stylesheet", type = "text/css", href = "styles.css"),
-               tags$style(HTML("      
-        body {
-          background-color: #fff8f0;
-          font-family: 'Patrick Hand', cursive;
-        }
-        .navbar, .panel {
-          border-radius: 15px;
-          box-shadow: 2px 2px 10px rgba(90, 62, 27, 0.4);
-        }
-        .action-button, .btn {
-          background-color: #8bc34a !important;
-          border-color: #5a3e1b !important;
-          color: #fff !important;
-          font-weight: bold;
-        }
-        .leaflet-container {
-          border-radius: 12px;
-          box-shadow: 0 0 15px rgba(90, 62, 27, 0.3);
-        }
-        details summary {
-          cursor: pointer;
-          padding: 6px;
-          font-size: 16px;
-        }
-        details[open] summary {
-          font-weight: bold;
-          color: #5a3e1b;
-        }
-      "))
-             ),
-             tabPanel("🧡🦃WELCOME🥛🗺 ",
-                      tabsetPanel(id = "welcome_tabs", selected = "Project Overview",
-                                  
-                                  tabPanel("Project Overview",
-                                           fluidRow(
-                                             column(12,
-                                                    tags$div(
-                                                      style = "padding: 30px; background-color: #fff3e6; border-radius: 15px; box-shadow: 0px 0px 12px rgba(0,0,0,0.1);",
-                                                      tags$h1("Welcome to the Virginia Dairy Plant Optimization Dashboard! 🐄"),
-                                                      tags$p("This dashboard is a one-stop tool to explore and analyze the suitability of different counties in Virginia for dairy plant placement."),
-                                                      tags$h4("📌 What's inside:"),
-                                                      tags$ul(
-                                                        tags$li("Milk production and cow productivity analysis"),
-                                                        tags$li("Transportation and road accessibility modeling"),
-                                                        tags$li("Data-driven recommendations for dairy plant siting"),
-                                                        tags$li("User-adjustable preferences for economic vs. farm-based priorities")
-                                                      ),
-                                                      tags$p("Built with love by two DSPG students who drank way too much chocolate milk while designing this."),
-                                                      tags$hr(),
-                                                      tags$blockquote("“Good data leads to good decisions. Great dashboards make them accessible.”")
-                                                    )
-                                             )
-                                           )
-                                  ),
-                                  
-                                  tabPanel("Data Sources",
-                                           fluidRow(
-                                             column(12,
-                                                    tags$h3("📊 Variables, Sources & Formats"),
-                                                    DT::dataTableOutput("data_sources_table")
-                                             )
-                                           )
-                                  ),
-                                  
-                                  tabPanel("About Us",
-                                           fluidRow(
-                                             column(6,
-                                                    tags$div(
-                                                      style = "padding: 20px; background-color: #fdf3e7; border-radius: 12px;",
-                                                      tags$h3("👩 Irmak Ocel"),
-                                                      tags$p("A Statistics & Public Health major from Virginia Tech. Passionate about making data make sense, especially in the public health & agriculture space."),
-                                                      tags$p("Former intern at Amazon, dashboard whisperer, and milk efficiency queen 🐄📈")
-                                                    )
+  
+  # Custom styles
+  tags$head(
+    tags$link(rel = "stylesheet", type = "text/css", href = "styles.css"), # Ensure styles.css is in a 'www' folder
+    tags$style(HTML("
+      body {
+        background-color: #fff8f0;
+        font-family: 'Patrick Hand', cursive;
+      }
+      .navbar, .panel {
+        border-radius: 15px;
+        box-shadow: 2px 2px 10px rgba(90, 62, 27, 0.4);
+      }
+      .action-button, .btn {
+        background-color: #8bc34a !important;
+        border-color: #5a3e1b !important;
+        color: #fff !important;
+        font-weight: bold;
+      }
+      .leaflet-container {
+        border-radius: 12px;
+        box-shadow: 0 0 15px rgba(90, 62, 27, 0.3);
+      }
+    "))
+  ),
+  
+  navbarPage(
+    "Virginia Dairy Plant Optimization", # This is the main navbar for your app
+    
+    # 🧡 Welcome Tab
+    tabPanel("🧡🦃WELCOME🥛🗺",
+             tabsetPanel(id = "welcome_tabs", selected = "Project Overview",
+                         tabPanel("Project Overview",
+                                  fluidRow(
+                                    column(12,
+                                           tags$div(
+                                             style = "padding: 30px; background-color: #fff3e6; border-radius: 15px; box-shadow: 0px 0px 12px rgba(0,0,0,0.1);",
+                                             tags$h1("Welcome to the Virginia Dairy Plant Optimization Dashboard! 🐄"),
+                                             tags$p("This dashboard is a one-stop tool to explore and analyze the ideal location for a dairy plant to be placed amongst different counties in Virginia."),
+                                             tags$h4("📌 What's inside:"),
+                                             tags$ul(
+                                               tags$li("Customizable map showing ideal dairy locations"),
+                                               tags$li("Suitability scores for each county (0–100)"),
+                                               tags$li("Economic Optimization Model for targeting ideal sites"),
+                                               tags$li("Milk productivity, cow inventory & road infrastructure insights"),
+                                               tags$li("Weather & THI reports")
                                              ),
-                                             column(6,
-                                                    tags$div(
-                                                      style = "padding: 20px; background-color: #fdf3e7; border-radius: 12px;",
-                                                      tags$h3("🧑‍💻 [Your Partner's Name]"),
-                                                      tags$p("A [Major] student with a love for geospatial analysis, clean maps, and transportation modeling."),
-                                                      tags$p("Known for: driving 3,000 virtual miles across Virginia to model cost paths.")
-                                                    )
-                                             )
+                                             tags$div(
+                                               style = "margin-top: 30px; padding: 20px; background-color: #fdf3e7; border-radius: 12px; box-shadow: 2px 2px 8px rgba(0,0,0,0.1);",
+                                               tags$h4("🥛 Moo-Facts Corner", style = "color: #5a3e1b;"),
+                                               uiOutput("cow_fact_text"),
+                                               br(),
+                                               actionButton("new_fact", "🔄 New Cow Fact", class = "btn btn-success")
+                                             ),
+                                             tags$p("Built with love by two DSPG students who drank way too much chocolate milk while designing this."),
+                                             tags$hr()
                                            )
+                                    )
                                   )
-                                  
-                      )
+                         ),
+                         tabPanel("Data Sources",
+                                  fluidRow(
+                                    column(12,
+                                           tags$h3("📊 Variables, Sources & Formats"),
+                                           DT::dataTableOutput("data_sources_table")
+                                    )
+                                  )
+                         ),
+                         tabPanel("About Us",
+                                  fluidRow(
+                                    column(6,
+                                           tags$div(
+                                             style = "padding: 20px; background-color: #fdf3e7; border-radius: 12px;",
+                                             tags$h3("👩 Irmak Ocel"),
+                                             tags$p("A Statistics & Public Health major from Virginia Tech. Connect with me on LinkedIn :)."),
+                                             tags$p("Does chocolate milk come from brown cows? 🐄📈")
+                                           )
+                                    ),
+                                    column(6,
+                                           tags$div(
+                                             style = "padding: 20px; background-color: #fdf3e7; border-radius: 12px;",
+                                             tags$h3("👩Julia Brady"),
+                                             tags$p("A fourth-year Computational Modeling & Data Analytics student at Virginia Tech"),
+                                             tags$p("Particularly interested in GIS, statistical modeling, and remote sensing."),
+                                             tags$p("Loves visiting cow farms !!!")
+                                           )
+                                    )
+                                  )
+                         )
+             ) # This closes the tabsetPanel inside the Welcome tab
+    ), # <--- THIS IS THE CORRECTED POSITION FOR THE WELCOME TAB'S CLOSING PARENTHESIS
+    
+    # Map View 🗺️ Tab
+    tabPanel("Map View 🗺️",
+             tags$div(
+               style = "font-size: 14px; padding: 12px; background-color: #f5f5f5; border-left: 6px solid #8c6bb1; border-radius: 8px; margin-bottom: 15px;",
+               tags$p("This section uses interactive maps and tables to explore the suitability of different Virginia counties for dairy plant location. Each tab helps visualize regional advantages and trade-offs based on various criteria."),
+               tags$ul(
+                 tags$li("🗺️ Suitability Score Map: Composite scores based on cow productivity, inventory, and road accessibility."),
+                 tags$li("⚖️ Economic Preference Map: Adjust the slider to weigh farmer vs. investor priorities and see how the optimal location shifts."),
+                 tags$li("📊 Compare Counties: View all counties side-by-side across key performance indicators.")
+               ),
+               tags$p("These tools allow users to interactively explore how their values and priorities affect optimal site selection.")
              ),
-             
-             
-             
-             tabPanel("Map View 🗺️",
-                      tabsetPanel(
-                        tabPanel("Suitability Score Map",
-                                 leafletOutput("suitability_map", height = "700px"),
+             tabsetPanel(
+               tabPanel("Suitability Score Map",
+                        leafletOutput("suitability_map", height = "700px"),
+                        br(),
+                        br()
+               ),
+               tabPanel("Economic Preference Map",
+                        fluidRow(
+                          column(12,
+                                 tags$div(
+                                   style = "font-size: 14px; padding: 12px; background-color: #fdf3e7; border-left: 5px solid #8c6bb1; border-radius: 8px; margin-bottom: 15px;",
+                                   tags$h4("⚖️ Economic Preference Model Overview"),
+                                   tags$p("This map shows the optimal county location for a dairy plant based on your preference weight between producers and processors."),
+                                   tags$p("The slider on the main Map View tab lets you set a weight from 0 to 100, where:"),
+                                   tags$ul(
+                                     tags$li("💰 0 = Entirely Processor Preference (e.g., Richmond area)"),
+                                     tags$li("🐄 100 = Entirely Farmer Preference (e.g., Rockingham area)")
+                                   ),
+                                   tags$p("Each weight value is mapped to a county using a linear interpolation equation that balances transportation costs from dairy-producing counties to potential processing sites."),
+                                   tags$p("The interpolation model is defined as:"),
+                                   tags$div(
+                                     style = "padding: 8px; background-color: #ffffff; border: 1px dashed #5a3e1b; border-radius: 6px; margin: 10px 0;",
+                                     tags$code("Optimal_County(w) = w * Rockingham + (1 - w) * Richmond"),
+                                     tags$p(style = "font-size: 12px; margin-top: 5px;",
+                                            "where w is the normalized weight (0 to 1) and each county is represented by its transportation matrix position.")
+                                   ),
+                                   tags$p("The county shown below reflects the interpolated result for your current slider value. It offers a location that minimizes transportation costs while balancing economic preferences.")
+                                 )
+                          )
+                        ),
+                        uiOutput("optimal_county_text"),
+                        leafletOutput("interpolation_map", height = "700px"),
+                        br()
+               ),
+               tabPanel("Compare Counties",
+                        tableOutput("county_comparison_table"),
+                        tags$p(
+                          style = "font-size: 14px; color: #444;",
+                          "Compare all Virginia dairy counties across key metrics like cow inventory, milk production, road scores, and composite suitability. Sort to explore regional differences."
+                        )
+               )
+             ),
+             absolutePanel(
+               top = 425, left = 600, width = 250, draggable = TRUE,
+               style = "background-color: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
+               tags$h3("🏁 Choose Your Priorities", style = "color: #5a3e1b; font-weight: bold; margin-top: 0;"),
+               sliderInput("weight_slider", "Weight Preferences", min = 0, max = 100, value = 50, step = 1),
+               helpText(HTML("Use the slider to balance the priorities of farmers vs. investors.<br>0 = entirely investor-focused.<br>100 = entirely farmer-focused.")),
+               tags$hr(),
+               tags$div(
+                 style = "display: flex; align-items: center; justify-content: space-between;",
+                 tags$h4("Top 5 Counties by Suitability 🐮", style = "margin: 0;"),
+                 actionLink("show_info", label = NULL, icon = icon("info-circle"), style = "color: #5a3e1b; margin-left: 8px;")
+               ),
+               tableOutput("top5_table")
+             )
+    ),
+    
+    # Cow Productivity 🐄📈 Tab
+    tabPanel("Cow Productivity 🐄📈",
+             tags$div( # Wrapped the introductory text in a div for better structure
+               style = "font-size: 14px; padding: 12px; background-color: #f5f5f5; border-left: 6px solid #8c6bb1; border-radius: 8px; margin-bottom: 15px;",
+               tags$p("This section analyzes how productive dairy cows are across Virginia counties. By standardizing milk output to a per-cow, per-day basis, we can better assess operational efficiency rather than just raw volume."),
+               tags$ul(
+                 tags$li("📈 View productivity trends by county over time"),
+                 tags$li("🥛 Compare average output per cow per day"),
+                 tags$li("🗓 Track total monthly production for seasonal insights")
+               )
+             ),
+             tabsetPanel(
+               tabPanel("Cow Productivity Model",
+                        fluidRow(
+                          column(3,
+                                 selectInput("efficiency_county_single", "Select County:",
+                                             choices = str_to_title(target_counties),
+                                             selected = str_to_title(target_counties[1]))
+                          ),
+                          column(9,
                                  br(),
-                                 br()
+                                 plotlyOutput("efficiency_line_plot", height = "450px")
+                          )
                         ),
-                        tabPanel("Economic Preference Map",
-                                 uiOutput("optimal_county_text"),
-                                 leafletOutput("interpolation_map", height = "700px"),
-                                 br()
-                        ),
-                        tabPanel("Compare Counties",
-                                 tableOutput("county_comparison_table")
+                        hr(),
+                        tags$h3("Milk Productivity Comparison Table"),
+                        tableOutput("monthly_efficiency_table"),
+                        hr(),
+                        tableOutput("efficiency_summary_table")
+               ),
+               tabPanel("Milk Overview",
+                        sidebarLayout(
+                          sidebarPanel(
+                            selectInput("selected_county", "Select County:",
+                                        choices = str_to_title(target_counties),
+                                        selected = str_to_title(target_counties[1])),
+                            selectInput("selected_year", "Choose a Year:", choices = 2016:2025, selected = 2024),
+                            tags$div(
+                              style = "font-size: 14px; padding: 10px; background-color: #f9f9f9; border-radius: 8px;",
+                              tags$p("This section analyzes how productive dairy cows are across Virginia counties. By standardizing milk output to a per-cow, per-day basis, we can better assess operational efficiency rather than just raw volume."),
+                              tags$ul(
+                                tags$li("📈 View productivity trends by county over time"),
+                                tags$li("🥛 Compare average output per cow per day"),
+                                tags$li("🗓 Track total monthly production for seasonal insights")
+                              )
+                            )
+                          ),
+                          mainPanel(
+                            tags$p(
+                              style = "font-size: 14px; color: #444;",
+                              "Track monthly milk productivity (lbs/cow/day) from 2016–2025 for a selected county. This metric shows how productive dairy operations are over time."
+                            ),
+                            br(),
+                            plotOutput("line_plot", height = "400px"),
+                            br(),
+                            htmlOutput("milk_avg"),
+                            DT::dataTableOutput("milk_table"),
+                            hr()
+                          )
                         )
-                        
-                      ),
-                      absolutePanel(
-                        top = 425, left = 600, width = 250, draggable = TRUE,
-                        style = "background-color: rgba(255,255,255,0.9); padding: 10px; border-radius: 10px; box-shadow: 2px 2px 6px rgba(0,0,0,0.2);",
-                        tags$h3("🏁 Choose Your Priorities", style = "color: #5a3e1b; font-weight: bold; margin-top: 0;"),
-                        
-                        sliderInput("weight_slider", "Weight Preferences", min = 0, max = 100, value = 50, step = 1),
-                        helpText(HTML("Use the slider to balance the priorities of farmers vs. investors.<br>0 = entirely investor-focused.<br>100 = entirely farmer-focused.")),
-                        
-                        tags$hr(),
-                        
-                        tags$div(
-                          style = "display: flex; align-items: center; justify-content: space-between;",
-                          tags$h4("Top 5 Counties by Suitability 🐮", style = "margin: 0;"),
-                          actionLink("show_info", label = NULL, icon = icon("info-circle"), style = "color: #5a3e1b; margin-left: 8px;")
-                        ),
-                        tableOutput("top5_table")
-                      )
-             ),
-             
-             tabPanel("Cow Productivity 🐄📈",
-                      tabsetPanel(
-                        
-                        tabPanel("Cow Productivity Model",
-                                 fluidRow(
-                                   column(3,
-                                          selectInput("efficiency_county_single", "Select County:",
-                                                      choices = str_to_title(target_counties),
-                                                      selected = str_to_title(target_counties[1]))
-                                   ),
-                                   column(9,
-                                          br(),
-                                          plotlyOutput("efficiency_line_plot", height = "450px")
-                                   )
-                                 ),
-                                 hr(),
-                                 tags$h3("Milk Productivity Comparison Table"),
-                                 tableOutput("monthly_efficiency_table"),
-                                 hr(),
-                                 tableOutput("efficiency_summary_table")
-                        ),
-                        
-                        tabPanel("Milk Overview",
-                                 sidebarLayout(
-                                   sidebarPanel(
-                                     selectInput("selected_county", "Select County:", 
-                                                 choices = str_to_title(target_counties), 
-                                                 selected = str_to_title(target_counties[1])),
-                                     selectInput("selected_year", "Choose a Year:", choices = 2016:2025, selected = 2024)
-                                   ),
-                                   mainPanel(
-                                     br(),
-                                     plotOutput("line_plot", height = "400px"),
-                                     br(),
-                                     htmlOutput("milk_avg"),
-                                     DT::dataTableOutput("milk_table"),
-                                     hr()
-                                   )
-                                 )
-                        ),
-                        
-                        tabPanel("Dairy Cow Inventory",
-                                 sidebarLayout(
-                                   sidebarPanel(
-                                     selectInput("cow_county", "Select County:", 
-                                                 choices = str_to_title(target_counties), 
-                                                 selected = str_to_title(target_counties[1])),
-                                     helpText("Dairy cow type can differ as organic and non-organic.")
-                                   ),
-                                   mainPanel(
-                                     br(),
-                                     plotOutput("cow_inventory_plot", height = "400px"),
-                                     br(),
-                                     DT::dataTableOutput("cow_inventory_table"),
-                                     br()
-                                   )
-                                 )
+               ),
+               tabPanel("Dairy Cow Inventory",
+                        sidebarLayout(
+                          sidebarPanel(
+                            selectInput("cow_county", "Select County:",
+                                        choices = str_to_title(target_counties),
+                                        selected = str_to_title(target_counties[1])),
+                            helpText("Dairy cow type can differ as organic and non-organic.")
+                          ),
+                          mainPanel(
+                            tags$p(
+                              style = "font-size: 14px; color: #444;",
+                              "See how dairy cow numbers have changed over time by county. Use this to identify capacity growth or decline."
+                            ),
+                            br(),
+                            plotOutput("cow_inventory_plot", height = "400px"),
+                            br(),
+                            DT::dataTableOutput("cow_inventory_table"),
+                            br()
+                          )
                         )
-                      ) 
-             ),
-             
-             
-             
-             
-             tabPanel("Roads & Accessibility 🚜",
-                      sidebarLayout(
-                        sidebarPanel(
-                          helpText("Primary & Secondary Roads and Accessibility Scores by County")
-                        ),
-                        mainPanel(
-                          leafletOutput("roads_map", height = "500px"),
-                          br(),
-                          plotOutput("accessibility_bar", height = "300px"),
-                          hr(),
-                          h3("Cost per Gallon by County and Destination"),
-                          plotOutput("cost_per_gallon_tile", height = "400px"),
-                          hr(),
-                          h3("Gallons Needed per Trip Bubble Plot"),
-                          plotOutput("gallons_needed_bubble", height = "400px"),
-                          br()
-                        )
-                      )
-             ),
-             
-             tabPanel("Transportation Costs 🚚",
-                      sidebarLayout(
-                        sidebarPanel(
-                          h4("Calculate Your Transportation Costs"),
-                          textInput("user_city", "Enter your city or lot name:"),
-                          numericInput("miles_arlington", "Miles to Arlington:", value = NA),
-                          numericInput("miles_richmond", "Miles to Richmond:", value = NA),
-                          numericInput("miles_vabeach", "Miles to VA Beach:", value = NA),
-                          numericInput("mpg", "Truck MPG:", value = 5.5),
-                          numericInput("fuel_price", "Fuel Price ($/gallon):", value = 4.5),
-                          numericInput("truck_capacity", "Truck Capacity (gallons):", value = 6000),
-                          numericInput("daily_production", "Daily Production (gallons):", value = 10000),
-                          numericInput("operating_days", "Operating Days per Year:", value = 340),
-                          actionButton("calc_btn", "💡 Calculate My Transportation Costs!")
-                        ),
-                        mainPanel(
-                          h4("Transportation Cost Metrics"),
-                          tableOutput("transport_metrics"),
-                          hr(),
-                          h4("Annual Transportation Cost Comparison"),
-                          plotOutput("annual_cost_bar"),
-                          hr(),
-                          h3("Not sure but in the market? Take a look at available lots!"),
-                          tableOutput("available_lots_table"),
-                          actionButton("vedp_button", "Explore More Lots on VEDP", 
-                                       onclick = "window.open('https://sites.vedp.org/', '_blank')", 
-                                       class = "btn-primary"),
-                          hr()
-                        )
-                      )
-             ),
-             tabPanel("Weather Statistics",
-                      tabsetPanel(
-                        tabPanel("Weather Map",
-                          sidebarLayout(
-                            sidebarPanel(
-                              helpText("Use the slider below to choose a day. This will update the map to show weather conditions across Virginia counties for that day."),
-                              sliderInput("selected_date",
-                                          "Select Date:",
-                                          min = min(weather_data$time),
-                                          max = max(weather_data$time),
-                                          value = min(weather_data$time),
-                                          timeFormat = "%Y-%m-%d"
-                                          ),
-                              helpText("Choose which weather factor you'd like to view on the map: temperature, humidity, or the Temperature-Humidity Index (THI)."),
-                              
-                              radioButtons( 
-                                inputId = "radio", 
-                                label = "Select Weather Factor:", 
-                                choices = list( 
-                                  "Temperature (°F)" = 1, 
-                                  "Relative Humidity (%)" = 2,
-                                  "Temperature-Humidity Index (THI)" = 3)),
-                              ),
+               )
+             ) # This closes the tabsetPanel inside the Cow Productivity tab
+    ), # Closing parenthesis for "Cow Productivity" tabPanel
+    
+    # Roads & Accessibility 🚜 Tab
+    tabPanel("Roads & Accessibility 🚜",
+             sidebarLayout(
+               sidebarPanel(
+                 tags$div(
+                   style = "font-size: 14px; padding-bottom: 10px;",
+                   tags$p("Explore how well-connected Virginia counties are for dairy transportation. This section analyzes the road infrastructure and its impact on accessibility and costs."),
+                   tags$ul(
+                     tags$li("🛣️ Map of primary & secondary roads overlaid on accessibility scores."),
+                     tags$li("📊 Bar chart ranking counties by accessibility score."),
+                     tags$li("💸 Heatmap of transportation cost per gallon for each county-destination pair."),
+                     tags$li("🫧 Bubble plot showing gallons needed per trip to processors.")
+                   ),
+                   tags$p("Higher accessibility means more efficient routes for transporting milk — which can lower costs and improve plant location decisions.")
+                 )
+               ),
+               mainPanel(
+                 leafletOutput("roads_map", height = "500px"),
+                 br(),
+                 tags$p(
+                   style = "font-size: 14px; color: #444;",
+                   "The Accessibility Score reflects the total length of primary and secondary roads within each county.
+                   Counties with higher scores have more road infrastructure, making them better connected and potentially
+                   more suitable for dairy plant operations due to lower transportation barriers."
+                 ),
+                 plotOutput("accessibility_bar", height = "300px"),
+                 hr(),
+                 h3("Cost per Gallon by County and Destination"),
+                 tags$p(
+                   style = "font-size: 14px; color: #444;",
+                   "This heatmap shows how much it costs, on average, to transport one gallon of milk from each county to processor destinations.
+                   Lower costs may indicate more efficient routes or proximity to major processors."
+                 ),
+                 plotOutput("cost_per_gallon_tile", height = "400px"),
+                 hr(),
+                 h3("Gallons Needed per Trip Bubble Plot"),
+                 tags$p(
+                   style = "font-size: 14px; color: #444;",
+                   "This bubble chart displays how many gallons of milk must be transported in each trip from county to processor.
+                   Larger bubbles indicate higher demand or longer travel requirements."
+                 ),
+                 plotOutput("gallons_needed_bubble", height = "400px"),
+                 br()
+               )
+             )
+    ), # Closing parenthesis for "Roads & Accessibility" tabPanel
+    
+    # Transportation Costs 🚚 Tab
+    tabPanel("Transportation Costs 🚚",
+             sidebarLayout(
+               sidebarPanel(
+                 h4("Calculate Your Transportation Costs"),
+                 tags$div(
+                   style = "font-size: 14px; padding: 12px; background-color: #fdf3e7; border-radius: 10px; margin-bottom: 15px;",
+                   tags$p("Estimate the fuel and delivery costs for moving milk from your site to different processing destinations across Virginia."),
+                   tags$ul(
+                     tags$li("🚚 Input miles to Arlington, Richmond, and VA Beach"),
+                     tags$li("⛽ Adjust fuel price and truck efficiency (MPG)"),
+                     tags$li("📦 Enter your truck capacity and daily milk output"),
+                     tags$li("📅 Calculate total costs based on your operating days per year")
+                   ),
+                   tags$p("This tool helps dairy operators make informed decisions by comparing costs across multiple routes and destinations.")
+                 ),
+                 textInput("user_city", "Enter your city or lot name:"),
+                 numericInput("miles_arlington", "Miles to Arlington:", value = NA),
+                 numericInput("miles_richmond", "Miles to Richmond:", value = NA),
+                 numericInput("miles_vabeach", "Miles to VA Beach:", value = NA),
+                 numericInput("mpg", "Truck MPG:", value = 5.5),
+                 numericInput("fuel_price", "Fuel Price ($/gallon):", value = 4.5),
+                 numericInput("truck_capacity", "Truck Capacity (gallons):", value = 6000),
+                 numericInput("daily_production", "Daily Production (gallons):", value = 10000),
+                 numericInput("operating_days", "Operating Days per Year:", value = 340),
+                 actionButton("calc_btn", "💡 Calculate My Transportation Costs!")
+               ),
+               mainPanel(
+                 h4("Transportation Cost Metrics"),
+                 tableOutput("transport_metrics"),
+                 tags$div(
+                   style = "background-color: #f9f9f9; padding: 15px; border-left: 6px solid #428bca; border-radius: 8px; margin-top: 15px; font-size: 14px;",
+                   tags$h4("🧮 Cost Calculation Assumptions", style = "color: #2c3e50;"),
+                   tags$table(
+                     style = "width: 100%; font-size: 14px;",
+                     tags$tr(
+                       tags$th("Input Variable", style = "text-align: left; padding-bottom: 8px;"),
+                       tags$th("Assumption", style = "text-align: left; padding-bottom: 8px;")
+                     ),
+                     tags$tr(tags$td("Truck Fuel Efficiency"), tags$td("5.5 miles per gallon")),
+                     tags$tr(tags$td("Diesel Price"), tags$td("$5.00 per gallon")),
+                     tags$tr(tags$td("Truck Capacity"), tags$td("6,000 gallons")),
+                     tags$tr(tags$td("Milk Output"), tags$td("10,000 gallons/day")),
+                     tags$tr(tags$td("Operating Days"), tags$td("340 days/year")),
+                     tags$tr(tags$td("Cost per Trip"), tags$td("Based on mileage, MPG, and diesel price")),
+                     tags$tr(tags$td("Outbound Freight Cost"), tags$td("Cost per trip ÷ gallons delivered"))
+                   ),
+                   tags$p(
+                     style = "margin-top: 10px;",
+                     "These assumptions help estimate the cost to transport milk from your plant to different processor destinations across Virginia."
+                   )
+                 ),
+                 hr(),
+                 h4("Annual Transportation Cost Comparison"),
+                 plotOutput("annual_cost_bar"),
+                 hr(),
+                 h3("Not sure but in the market? Take a look at available lots!"),
+                 tableOutput("available_lots_table"),
+                 actionButton("vedp_button", "Explore More Lots on VEDP",
+                              onclick = "window.open('https://sites.vedp.org/', '_blank')",
+                              class = "btn-primary"),
+                 hr()
+               )
+             )
+    ), # Closing parenthesis for "Transportation Costs" tabPanel
+    
+    # Weather Statistics Tab
+    tabPanel("Weather Statistics",
+             tabsetPanel(
+               tabPanel("Weather Map",
+                        sidebarLayout(
+                          sidebarPanel(
+                            helpText("Use the slider below to choose a day. This will update the map to show weather conditions across Virginia counties for that day."),
+                            sliderInput("selected_date",
+                                        "Select Date:",
+                                        min = min(weather_data$time),
+                                        max = max(weather_data$time),
+                                        value = min(weather_data$time),
+                                        timeFormat = "%Y-%m-%d"
+                            ),
+                            helpText("Choose which weather factor you'd like to view on the map: temperature, humidity, or the Temperature-Humidity Index (THI)."),
+                            
+                            radioButtons( 
+                              inputId = "radio", 
+                              label = "Select Weather Factor:", 
+                              choices = list( 
+                                "Temperature (°F)" = 1, 
+                                "Relative Humidity (%)" = 2,
+                                "Temperature-Humidity Index (THI)" = 3)),
+                          ),
                           
                           mainPanel(
                             br(),
                             h4("Geographic Weather Trends in Shenandoah Valley"),
                             leafletOutput("temp_map", height = "400px"),
-                                    br(),
-                                    br())
-                          )
-                        ),
-                        tabPanel("Line Charts",
-                                 sidebarLayout(
-                                   sidebarPanel(
-                                     helpText("Use the dropdown to look at a specific county. This will display temperature and humidity trends over the past few days, as well as forecasts."),
-                                     selectInput("selected_county_thi",
-                                                 "Choose a County:",
-                                                 choices = sort(unique(weather_data$county)),
-                                                 selected = unique(weather_data$county)[1]),
-                                     helpText("Milk production can drop when temperatures go above 70°F or below 40°F, when humidity rises above 60% or drops below 40%, or when THI goes above 68."),
-                                     
-                                     
-                                     helpText("In these charts, the green shaded area shows the optimal range of temperature, humidity, and THI for consistent milk production."),
-                                     
-                                   ),
-                                   mainPanel(
-                                     br(),
-                                     plotlyOutput("temp_line_plot", height = "400px"),
-                                     br(),
-                                     plotlyOutput("hum_line_plot", height = "400px"),
-                                     br(),
-                                     plotlyOutput("thi_line_plot", height = "400px"),
-                                     br())
-                                 )
-                        ),
-                        
-                        tabPanel("Recent Weather Table",
-                                 sidebarLayout(
-                                   sidebarPanel(
-                                     helpText("Use the dropdown to look at a specific county. This will display temperature and humidity trends over the past few days, as well as forecasts."),
-                                     
-                                     selectInput("selected_county_thi",
-                                                 "Choose a County:",
-                                                 choices = sort(unique(weather_data$county)),
-                                                 selected = unique(weather_data$county)[1]),
-                                   ),
-                                   mainPanel(
-                                     br(),
-                                     uiOutput("table_title"),
-                                     DTOutput("data_table"),
-                                     br())
-                                 )
+                            br(),
+                            br())
                         )
+               ),
+               tabPanel("Line Charts",
+                        sidebarLayout(
+                          sidebarPanel(
+                            helpText("Use the dropdown to look at a specific county. This will display temperature and humidity trends over the past few days, as well as forecasts."),
+                            selectInput("selected_county_thi",
+                                        "Choose a County:",
+                                        choices = sort(unique(weather_data$county)),
+                                        selected = unique(weather_data$county)[1]),
+                            helpText("Milk production can drop when temperatures go above 70°F or below 40°F, when humidity rises above 60% or drops below 40%, or when THI goes above 68."),
+                            
+                            
+                            helpText("In these charts, the green shaded area shows the optimal range of temperature, humidity, and THI for consistent milk production."),
+                            
+                          ),
+                          mainPanel(
+                            br(),
+                            plotlyOutput("temp_line_plot", height = "400px"),
+                            br(),
+                            plotlyOutput("hum_line_plot", height = "400px"),
+                            br(),
+                            plotlyOutput("thi_line_plot", height = "400px"),
+                            br())
                         )
-                      )
+               ),
+               
+               tabPanel("Recent Weather Table",
+                        sidebarLayout(
+                          sidebarPanel(
+                            helpText("Use the dropdown to look at a specific county. This will display temperature and humidity trends over the past few days, as well as forecasts."),
+                            
+                            selectInput("selected_county_thi",
+                                        "Choose a County:",
+                                        choices = sort(unique(weather_data$county)),
+                                        selected = unique(weather_data$county)[1]),
+                          ),
+                          mainPanel(
+                            br(),
+                            uiOutput("table_title"),
+                            DTOutput("data_table"),
+                            br())
+                        )
+               )
              )
+    )
+  )
 )
+
 
 
 # Server logic for VA Dairy Dashboard
@@ -574,6 +708,29 @@ server <- function(input, output, session) {
     fetch_dairy_cows(years_to_fetch())
   })
   print(head(transport_df))
+  # Cow fun facts
+  cow_facts <- c(
+    "The average dairy cow produces 7 gallons of milk a day!",
+    "Cows have almost 300° panoramic vision.",
+    "Dairy cows can drink up to 50 gallons of water daily.",
+    "There are over 9 million dairy cows in the U.S.",
+    "A cow’s stomach has four compartments!",
+    "Cows lie down for about 14 hours a day.",
+    "Milk is about 87% water.",
+    "Cows can remember faces — human and cow!"
+  )
+  
+  # Reactive cow fact generator
+  current_fact <- reactiveVal(sample(cow_facts, 1))
+  
+  observeEvent(input$new_fact, {
+    current_fact(sample(cow_facts, 1))
+  })
+  
+  output$cow_fact_text <- renderUI({
+    tags$p(current_fact(), style = "font-size: 16px; font-style: italic;")
+  })
+  
   
   # Cleaned VA dairy cow inventory
   dairy_cows_va <- reactive({
@@ -600,12 +757,11 @@ server <- function(input, output, session) {
       left_join(dairy_cows_va(), by = c("COUNTY", "YEAR")) %>%
       filter(!is.na(COWS), COWS > 0, !is.na(`MILK (lbs)`)) %>%
       mutate(
-        efficiency_lbs_per_cow = `MILK (lbs)` / COWS,
+        efficiency_lbs_per_cow = `MILK (lbs)` / COWS / 30,
         MONTH_NAME = month.name[month(DATE)],
         MONTH_NAME = factor(MONTH_NAME, levels = month.name, ordered = TRUE)
       )
   })
-  
   
   
   # Monthly efficiency summary reactive
