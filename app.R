@@ -58,18 +58,17 @@ milk_data <- readxl::read_excel(temp_milk) %>%
     MONTH_NUM = month(DATE)
   )
 
-# Load roads shapefile and process for accessibility scores
+#road sf
+url <- "https://github.com/yuetong233/Dairy_dspg/raw/main/tl_2023_51_prisecroads_final.zip"
 temp_roads <- tempfile(fileext = ".zip")
-download.file(
-  "https://github.com/yuetong233/Dairy_dspg/raw/main/tl_2023_51_prisecroads_final.zip",
-  destfile = temp_roads,
-  mode = "wb"
-)
+download.file(url, temp_roads)
 
-roads <- st_read(dsn=temp_roads, quiet=TRUE)
+unzip_dir <- tempdir()
+unzip(temp_roads, exdir = unzip_dir)
+shapefile_path <- list.files(unzip_dir, pattern = "\\.shp$", full.names = TRUE)
 
-#roads_path <- "https://github.com/yuetong233/Dairy_dspg/raw/refs/heads/main/tl_2023_51_prisecroads_flat.zip"
-#roads <- sf::st_read(roads_path, quiet = TRUE)
+roads <- st_read(dsn=shapefile_path[2], quiet=T)
+
 primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S")) %>% st_transform(4326)
 # Join road segments with counties
 roads_with_county <- st_join(primary_secondary_roads, target_va_counties["NAME"], left = FALSE)
