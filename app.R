@@ -322,9 +322,8 @@ ui <- fluidPage(
                                            tags$div(
                                              style = "padding: 20px; background-color: #fdf3e7; border-radius: 12px;",
                                              tags$h3("👩Julia Brady"),
-                                             tags$p("A fourth-year Computational Modeling & Data Analytics student at Virginia Tech"),
-                                             tags$p("Particularly interested in GIS, statistical modeling, and remote sensing."),
-                                             tags$p("Loves visiting cow farms !!!")
+                                             tags$p("A fourth-year Computational Modeling & Data Analytics student at Virginia Tech."),
+                                             tags$p("Particularly interested in GIS, statistical modeling, and remote sensing.")
                                            )
                                     )
                                   )
