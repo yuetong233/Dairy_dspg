@@ -41,9 +41,11 @@ target_counties <- toupper(c("SHENANDOAH", "ROCKINGHAM", "AUGUSTA", "WARREN",
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
 
 # Milk Prod data 2011-2025
-temp <- tempfile(fileext = ".xlsx")
-download.file("https://github.com/yuetong233/Dairy_dspg/raw/refs/heads/main/data/VA_Milk_Production.xlsx", temp_file, mode = "wb")
-milk_data <- readxl::read_excel(temp_file) %>%
+temp_milk <- tempfile(fileext = ".xlsx")
+download.file("https://github.com/yuetong233/Dairy_dspg/raw/refs/heads/main/data/VA_Milk_Production.xlsx", 
+              temp_milk, 
+              mode = "wb")
+milk_data <- readxl::read_excel(temp_milk) %>%
   rename(
     `MILK (lbs)` = POUNDS_OF_MILK,
     PRODUCERS = NUMBER_OF_PRODUCERS
@@ -57,8 +59,17 @@ milk_data <- readxl::read_excel(temp_file) %>%
   )
 
 # Load roads shapefile and process for accessibility scores
-roads_path <- "https://github.com/yuetong233/Dairy_dspg/raw/refs/heads/main/tl_2023_51_prisecroads.zip"
-roads <- sf::st_read(roads_path, quiet = TRUE)
+temp_roads <- tempfile(fileext = ".zip")
+download.file(
+  "https://github.com/yuetong233/Dairy_dspg/raw/main/tl_2023_51_prisecroads_final.zip",
+  destfile = temp_roads,
+  mode = "wb"
+)
+
+roads <- st_read(dsn=temp_roads, quiet=TRUE)
+
+#roads_path <- "https://github.com/yuetong233/Dairy_dspg/raw/refs/heads/main/tl_2023_51_prisecroads_flat.zip"
+#roads <- sf::st_read(roads_path, quiet = TRUE)
 primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S")) %>% st_transform(4326)
 # Join road segments with counties
 roads_with_county <- st_join(primary_secondary_roads, target_va_counties["NAME"], left = FALSE)
