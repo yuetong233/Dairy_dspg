@@ -24,8 +24,10 @@ library(readr)
 
 # Authenticate with NASS API
 nassqs_auth(key = "6644F8BA-CCCE-3CEE-BCE7-5BA5E83CA7E8")
-transport_df <- read_excel("miles_processed.xlsx")
-interpolated_df <- read.csv("interpolated_optimal_counties.csv")
+temp_file <- tempfile(fileext = ".xlsx")
+download.file("https://raw.githubusercontent.com/yuetong233/Dairy_dspg/main/data/miles_processed.xlsx", temp_file, mode = "wb")
+transport_df <- readxl::read_excel(temp_file)
+interpolated_df <- read.csv("https://github.com/yuetong233/Dairy_dspg/raw/refs/heads/main/interpolated_optimal_counties.csv")
 
 # Load VA counties spatial data
 va_counties <- counties(state = "VA", cb = TRUE, class = "sf") %>%
@@ -39,7 +41,9 @@ target_counties <- toupper(c("SHENANDOAH", "ROCKINGHAM", "AUGUSTA", "WARREN",
 target_va_counties <- va_counties %>% filter(NAME %in% target_counties)
 
 # Milk Prod data 2011-2025
-milk_data <- read_excel("VA_Milk_Production.xlsx") %>%
+temp <- tempfile(fileext = ".xlsx")
+download.file("https://github.com/yuetong233/Dairy_dspg/raw/refs/heads/main/data/VA_Milk_Production.xlsx", temp_file, mode = "wb")
+milk_data <- readxl::read_excel(temp_file) %>%
   rename(
     `MILK (lbs)` = POUNDS_OF_MILK,
     PRODUCERS = NUMBER_OF_PRODUCERS
@@ -53,7 +57,7 @@ milk_data <- read_excel("VA_Milk_Production.xlsx") %>%
   )
 
 # Load roads shapefile and process for accessibility scores
-roads_path <- "tl_2023_51_prisecroads-2/tl_2023_51_prisecroads.shp"
+roads_path <- "https://github.com/yuetong233/Dairy_dspg/raw/refs/heads/main/tl_2023_51_prisecroads.zip"
 roads <- sf::st_read(roads_path, quiet = TRUE)
 primary_secondary_roads <- roads %>% filter(RTTYP %in% c("P", "S")) %>% st_transform(4326)
 # Join road segments with counties
