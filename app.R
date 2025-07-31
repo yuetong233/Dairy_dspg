@@ -315,7 +315,29 @@ ui <- fluidPage(
                                              tags$h4("Faculty Leads"),
                                              tags$a("Dr. Mario Ortez, ", href="https://aaec.vt.edu/people/faculty/ortez.html"),
                                              tags$a("Dr. Michael Cary, ", href="https://aaec.vt.edu/people/faculty/cary.html"),
-                                             tags$a("Dr. Le Wang", href="https://aaec.vt.edu/people/faculty/lwang.html")
+                                             tags$a("Dr. Le Wang", href="https://aaec.vt.edu/people/faculty/lwang.html"),
+                                             br(),
+                                             br(),
+                                             img(src="https://github.com/yuetong233/Dairy_dspg/raw/main/dairy_alliance_logo.png", 
+                                                 align="left",
+                                                 height=59,
+                                                 width=260),
+                                             
+                                             img(src="https://github.com/yuetong233/Dairy_dspg/raw/main/KohlCentre_Horizontal_FullColor_RGB.png",
+                                                 height=39,
+                                                 width=262,
+                                                 style = "
+                                                 margin-left:10%;
+                                                 display: inline-block;
+                                                  "),
+                                             
+                                             img(src="https://github.com/yuetong233/Dairy_dspg/raw/main/vasda_logo.jpeg",
+                                                 align="right",
+                                                 height=70,
+                                                 width=70),
+                                             
+                                             br(),
+                                             br()
                                            )
                                     )
                                   )
