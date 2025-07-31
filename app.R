@@ -19,7 +19,6 @@ library(httr)
 library(jsonlite)
 library(blsAPI)
 library(dataRetrieval)
-library(taskscheduleR)
 library(readr)
 
 # Authenticate with NASS API
@@ -308,8 +307,15 @@ ui <- fluidPage(
                                                br(),
                                                actionButton("new_fact", "🔄 New Cow Fact", class = "btn btn-success")
                                              ),
+                                             br(),
                                              tags$p("Built with love by two DSPG students who drank way too much chocolate milk while designing this."),
-                                             tags$hr()
+                                             tags$h1("Project Details"),
+                                             tags$h4("Partners"),
+                                             tags$p("The Dairy Alliance and The Virginia State Dairymen's Association (VSDA)"),
+                                             tags$h4("Faculty Leads"),
+                                             tags$a("Dr. Mario Ortez, ", href="https://aaec.vt.edu/people/faculty/ortez.html"),
+                                             tags$a("Dr. Michael Cary, ", href="https://aaec.vt.edu/people/faculty/cary.html"),
+                                             tags$a("Dr. Le Wang", href="https://aaec.vt.edu/people/faculty/lwang.html")
                                            )
                                     )
                                   )
