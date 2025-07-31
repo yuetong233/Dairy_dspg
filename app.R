@@ -378,8 +378,8 @@ ui <- fluidPage(
                                    tags$p("This map shows the optimal county location for a dairy plant based on your preference weight between producers and processors."),
                                    tags$p("The slider on the main Map View tab lets you set a weight from 0 to 100, where:"),
                                    tags$ul(
-                                     tags$li("💰 0 = Entirely Processor Preference (e.g., Richmond area)"),
-                                     tags$li("🐄 100 = Entirely Farmer Preference (e.g., Rockingham area)")
+                                     tags$li("💰 0 = Entirely Processor Preference (i.e., Richmond area)"),
+                                     tags$li("🐄 100 = Entirely Farmer Preference (i.e., Rockingham area)")
                                    ),
                                    tags$p("Each weight value is mapped to a county using a linear interpolation equation that balances transportation costs from dairy-producing counties to potential processing sites."),
                                    tags$p("The interpolation model is defined as:"),
@@ -1068,14 +1068,14 @@ server <- function(input, output, session) {
       HTML("<span style='color: red;'>❌ No matching county found for this preference.</span>")
     } else {
       pct <- selected_row$weight
-      paste_dairy <- paste0(100 - pct, "% dairy")
-      paste_cost <- paste0(pct, "% cost")
+      paste_dairy <- paste0(pct, "% dairy")
+      paste_cost <- paste0(100 - pct, "% cost")
       county <- selected_row$county
       
       HTML(paste0(
         "<strong style='color: #4CAF50;'>✅ Suggested county:</strong> ",
         "<span style='font-size: 18px; color: #5a3e1b;'>", county, "</span><br>",
-        "<em>Based on your preference of ", paste_dairy, " and ", paste_cost, ".</em>"
+        "<em>Based on your preference of ", paste_cost, " and ", paste_dairy, ".</em>"
       ))
     }
   })
